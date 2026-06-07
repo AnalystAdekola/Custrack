@@ -238,55 +238,83 @@ with tab_paste:
         else:
             st.error("Text field is empty.")
 
-# --- TAB 2: DATA REGISTRY ENGINE (READING AND MANAGING FROM SQLITE) ---
+# --- TAB 2: DATA REGISTRY ENGINE (WITH DYNAMIC FILTERING & DELETION) ---
 with tab_view:
     st.markdown(f"### <span style='color:{accent_color}'>View Data & File Exporters</span>", unsafe_allow_html=True)
     
-    # Always read fresh, live database rows right off the storage file upon tab click/refresh
+    # Always read fresh, live database rows right off the storage file
     current_ledger_df = load_orders_from_db()
     
     if not current_ledger_df.empty:
-        # Export Actions Layout
+        # --- COOL FEATURE: REAL-TIME SEARCH FILTER ---
+        st.markdown("#### 🔍 Quick Search Filter")
+        search_query = st.text_input(
+            "Search by Customer Name, Receiver Name, Phone Number, or Address:", 
+            placeholder="Type anything to filter instantly..."
+        ).strip().lower()
+        
+        # Apply the filter across multiple columns dynamically if a query exists
+        if search_query:
+            filtered_df = current_ledger_df[
+                current_ledger_df['Customer_Name'].str.lower().str.contains(search_query, na=False) |
+                current_ledger_df['Receiver_Name'].str.lower().str.contains(search_query, na=False) |
+                current_ledger_df['Customer_Phone'].str.lower().str.contains(search_query, na=False) |
+                current_ledger_df['Receiver_Phone'].str.lower().str.contains(search_query, na=False) |
+                current_ledger_df['Delivery_Address'].str.lower().str.contains(search_query, na=False)
+            ]
+            st.caption(f"Showing {len(filtered_df)} of {len(current_ledger_df)} records matching '{search_query}'")
+        else:
+            filtered_df = current_ledger_df.copy()
+
+        # --- EXPORT ACTIONS PANEL (Uses the filtered data so you only export what you search!) ---
         col_dl1, col_dl2, col_dl3 = st.columns(3)
         
-        # Strip out the internal database ID column from file downloads so files remain clean
-        export_df = current_ledger_df.drop(columns=["id"], errors="ignore")
+        # Strip out internal database ID column for clean downloads
+        export_df = filtered_df.drop(columns=["id"], errors="ignore")
         
         csv_bin = export_df.to_csv(index=False).encode('utf-8')
-        col_dl1.download_button("📄 Download Master CSV File", csv_bin, "fabskollexionn_ledger.csv", "text/csv", use_container_width=True)
+        col_dl1.download_button("📄 Download Filtered CSV", csv_bin, "fabskollexionn_ledger.csv", "text/csv", use_container_width=True)
         
         xlsx_io = io.BytesIO()
         with pd.ExcelWriter(xlsx_io, engine='openpyxl') as wr:
             export_df.to_excel(wr, index=False, sheet_name="DeliveriesMaster")
         xlsx_io.seek(0)
-        col_dl2.download_button("📈 Download Excel Ledger (.xlsx)", xlsx_io, "fabskollexionn_ledger.xlsx", use_container_width=True)
+        col_dl2.download_button("📈 Download Filtered Excel (.xlsx)", xlsx_io, "fabskollexionn_ledger.xlsx", use_container_width=True)
         
-        # Pass full dataframe to handle PDF formatting internals
-        pdf_io = generate_pdf(current_ledger_df)
-        col_dl3.download_button("📕 Export Professional PDF Document", pdf_io, "fabskollexionn_ledger.pdf", "application/pdf", use_container_width=True)
+        pdf_io = generate_pdf(filtered_df)
+        col_dl3.download_button("📕 Export Filtered PDF", pdf_io, "fabskollexionn_ledger.pdf", "application/pdf", use_container_width=True)
         
         st.markdown("---")
         
-        # Row Multi-Selection Drop deletion mechanics mapping back to database primary keys
+        # --- SMART DELETION MANAGEMENT (Only shows options based on your search) ---
         st.markdown("#### 🚨 Delete Specified Data Rows")
-        deletion_options = {
-            f"Row ID {row['id']} | {row['Customer_Name']} ➡️ {row['Receiver_Name']}": row['id']
-            for _, row in current_ledger_df.iterrows()
-        }
-        target_selections = st.multiselect("Select the target data records to remove permanently from storage file:", options=list(deletion_options.keys()))
         
-        if st.button("🗑️ Drop Selected Rows Permanently", type="secondary"):
-            if target_selections:
-                # Extract database primary key IDs to target for permanent deletion
-                ids_to_delete = [deletion_options[item] for item in target_selections]
-                delete_orders_from_db(ids_to_delete)
-                st.toast("Selected rows dropped from database file successfully.")
-                st.rerun()
+        # The dropdown now intelligently maps ONLY to the filtered results, making it stress-free to target a row
+        deletion_options = {
+            f"Row ID {row['id']} | {row['Customer_Name']} ➡️ {row['Receiver_Name']} ({row['Time_Log']})": row['id']
+            for _, row in filtered_df.iterrows()
+        }
+        
+        if deletion_options:
+            target_selections = st.multiselect(
+                "Select the specific records to remove permanently from storage file:", 
+                options=list(deletion_options.keys())
+            )
+            
+            if st.button("🗑️ Drop Selected Rows Permanently", type="secondary"):
+                if target_selections:
+                    # Extract database primary key IDs to target for permanent deletion
+                    ids_to_delete = [deletion_options[item] for item in target_selections]
+                    delete_orders_from_db(ids_to_delete)
+                    st.toast("Selected rows dropped from database file successfully.")
+                    st.rerun()
+        else:
+            st.info("No matching rows found to delete based on your current search query.")
         
         st.markdown("---")
         
-        # Display the live database table
-        st.markdown("#### 👁️ Current Master DataFrame Matrix")
+        # --- RENDER INTERACTIVE DATAFRAME ---
+        st.markdown("#### 👁️ Live Filtered DataFrame Matrix")
         st.dataframe(export_df, use_container_width=True)
         
     else:
