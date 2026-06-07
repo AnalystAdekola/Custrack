@@ -10,13 +10,16 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-# --- HIGH-CONTRAST PDF GENERATOR ---
+# --- FIXED HIGH-CONTRAST PDF GENERATOR WITH AUTO-WRAPPING ---
 def generate_pdf(dataframe):
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    # Expanded width slightly to maximize space for mobile-friendly landscape view
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=20, leftMargin=20, topMargin=30, bottomMargin=30)
     story = []
     
     styles = getSampleStyleSheet()
+    
+    # Define custom heading style
     title_style = ParagraphStyle(
         'TitleStyle',
         parent=styles['Heading1'],
@@ -26,26 +29,53 @@ def generate_pdf(dataframe):
         alignment=1 
     )
     
+    # Define cell styles to force auto-wrap and prevent overlap
+    header_cell_style = ParagraphStyle(
+        'HeaderStyle',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=9,
+        leading=11,
+        textColor=colors.whitesmoke,
+        alignment=1
+    )
+    
+    body_cell_style = ParagraphStyle(
+        'BodyStyle',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=8,
+        leading=11, # Crucial: gives vertical breathing room for wrapped multi-line text
+        textColor=colors.HexColor("#1E293B"),
+        alignment=1
+    )
+    
     story.append(Paragraph("Fabskollexionn Customer & Delivery Tracker", title_style))
     story.append(Spacer(1, 15))
     
+    # Convert headers into Wrapped Paragraph objects
     columns = list(dataframe.columns)
-    data = [columns] 
+    header_row = [Paragraph(str(col).replace("_", " "), header_cell_style) for col in columns]
+    data = [header_row] 
     
+    # Convert every body cell into a Wrapped Paragraph object
     for _, row in dataframe.iterrows():
-        data.append([str(val) for val in row.values])
+        body_row = [Paragraph(str(val), body_cell_style) for val in row.values]
+        data.append(body_row)
         
-    t = Table(data, colWidths=[65, 80, 80, 80, 110, 80, 65])
+    # Explicit column width distribution (Total = 572 points, perfectly fitting a standard Letter page)
+    # Notice we gave the 'Delivery_Address' column the largest share (152 points) to breathe cleanly
+    column_widths = [65, 80, 80, 80, 152, 65, 50]
+    
+    t = Table(data, colWidths=column_widths, repeatRows=1)
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#1E3A8A")),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0,0), (-1,0), 9),
-        ('BOTTOMPADDING', (0,0), (-1,0), 6),
-        ('BACKGROUND', (0,1), (-1,-1), colors.HexColor("#F3F4F6")),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E5E7EB")),
-        ('FONTSIZE', (0,1), (-1,-1), 8),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'), # Keeps text beautifully centered vertically
+        ('TOPPADDING', (0,0), (-1,-1), 8),    # Adds padding so text doesn't touch borders
+        ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.HexColor("#FFFFFF"), colors.HexColor("#F8FAFC")]), # Clean alternating rows
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E2E8F0")),
     ]))
     
     story.append(t)
