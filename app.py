@@ -197,7 +197,7 @@ with tab_paste:
         
     st.markdown("<br>", unsafe_allow_html=True)
     
-    if st.button("⚡ Parse Block & Commit Row", type="primary", use_container_width=True):
+    if st.button("⚡ Save Customer Details", type="primary", use_container_width=True):
         if raw_pasted_text.strip():
             parsed_data = extract_order_details(raw_pasted_text)
             
