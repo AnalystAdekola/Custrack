@@ -1,14 +1,16 @@
-import streamlit as st
+import re
 import pandas as pd
+import streamlit as st
 from datetime import datetime
 import io
+
 # PDF Generation Imports
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-# --- PDF GENERATOR HELPER ---
+# --- HIGH-CONTRAST PDF GENERATOR ---
 def generate_pdf(dataframe):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
@@ -21,20 +23,18 @@ def generate_pdf(dataframe):
         fontSize=16,
         leading=20,
         textColor=colors.HexColor("#1E3A8A"),
-        alignment=1 # Center
+        alignment=1 
     )
     
     story.append(Paragraph("Fabskollexionn Customer & Delivery Tracker", title_style))
     story.append(Spacer(1, 15))
     
-    # Prepare Table Data
     columns = list(dataframe.columns)
-    data = [columns] # Header row
+    data = [columns] 
     
     for _, row in dataframe.iterrows():
         data.append([str(val) for val in row.values])
         
-    # Table Styling for mobile data snapshot
     t = Table(data, colWidths=[65, 80, 80, 80, 110, 80, 65])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#1E3A8A")),
@@ -53,7 +53,35 @@ def generate_pdf(dataframe):
     buffer.seek(0)
     return buffer
 
-# --- STREAMLIT CONFIGURATION ---
+# --- REGEX EXTRACTOR ENGINE ---
+def extract_order_details(text_block):
+    """
+    Looks for the target variables inside the pasted block,
+    regardless of the order they appear in.
+    """
+    # Regex compilation to cleanly snap up everything following the label up to the next newline
+    patterns = {
+        "Customer_Name": r"Customer\s*Name:\s*(.*)",
+        "Customer_Phone": r"Customer\s*Phone\s*(?:No|Number)?:\s*(.*)",
+        "Receiver_Name": r"Receiver\s*Name:\s*(.*)",
+        "Delivery_Address": r"(?:Address|Delivery\s*Address):\s*(.*)",
+        "Receiver_Phone": r"Receiver\s*Phone\s*(?:No|Number)?:\s*(.*)"
+    }
+    
+    extracted = {}
+    for key, pattern in patterns.items():
+        match = re.search(pattern, text_block, re.IGNORECASE)
+        extracted[key] = match.group(1).strip() if match else "Not Provided"
+        
+    # Validation optimization fallback logic
+    if extracted["Receiver_Name"] == "Not Provided" or not extracted["Receiver_Name"]:
+        extracted["Receiver_Name"] = extracted["Customer_Name"]
+    if extracted["Receiver_Phone"] == "Not Provided" or not extracted["Receiver_Phone"]:
+        extracted["Receiver_Phone"] = extracted["Customer_Phone"]
+        
+    return extracted
+
+# --- STREAMLIT PAGE SETUP ---
 st.set_page_config(
     page_title="Fabskollexionn Tracker", 
     page_icon="🛍️", 
@@ -61,158 +89,175 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- THEME MANAGEMENT (Light / Dark Mode Selector) ---
-if "theme_mode" not in st.session_state:
-    st.session_state.theme_mode = "Light"
+# --- MASTER SESSIONS INITIALIZATION ---
+if "tracker_db" not in st.session_state:
+    st.session_state.tracker_db = pd.DataFrame(columns=[
+        "Time_Log", "Customer_Name", "Customer_Phone", "Receiver_Name", "Delivery_Address", "Receiver_Phone", "Status"
+    ])
 
-theme_toggle = st.radio("🌓 Select Interface Theme Mode:", ["Light", "Dark"], horizontal=True)
+# --- FIXED DUAL THEME MECHANICS (High Contrast Injection) ---
+if "theme" not in st.session_state:
+    st.session_state.theme = "Light Mode"
 
-# Inject dynamic CSS based on chosen theme mode for perfect contrast on mobile screens
-if theme_toggle == "Dark":
-    st.markdown("""
+# Simple clear radio controller for UI state swapping
+theme_choice = st.radio("🌓 Toggle Workspace Theme:", ["Light Mode", "Dark Mode"], horizontal=True)
+
+if theme_choice == "Dark Mode":
+    # Strong accessibility contrast definitions for Dark theme
+    text_color = "#FFFFFF"      # Crisp stark white text
+    accent_color = "#38BDF8"    # Bright electric sky blue for highlights
+    card_bg = "#1E293B"          # Deep Slate Card backing
+    
+    st.markdown(f"""
         <style>
-        .stApp { background-color: #111827; color: #F9FAFB; }
-        div[data-testid="stForm"] { background-color: #1F2937; border: 1px solid #374151; border-radius: 10px; }
+        .stApp {{ background-color: #0F172A !important; color: {text_color} !important; }}
+        h1, h2, h3, h4, h5, h6, p, label, span, [data-testid="stMarkdownContainer"] p {{ color: {text_color} !important; font-weight: 500; }}
+        textarea {{ background-color: #1E293B !important; color: #FFFFFF !important; border: 1px solid #475569 !important; font-size: 16px !important; }}
+        .stTabs [data-baseweb="tab"] {{ color: #94A3B8 !important; }}
+        .stTabs [aria-selected="true"] {{ color: {accent_color} !important; font-weight: bold !important; }}
         </style>
     """, unsafe_allow_html=True)
 else:
+    # Standard clean Light theme 
+    text_color = "#1E293B"
+    accent_color = "#1E3A8A"
+    card_bg = "#FFFFFF"
     st.markdown("""
         <style>
-        .stApp { background-color: #F9FAFB; color: #111827; }
-        div[data-testid="stForm"] { background-color: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 10px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+        .stApp { background-color: #F8FAFC !important; color: #1E293B !important; }
+        textarea { background-color: #FFFFFF !important; color: #1E293B !important; border: 1px solid #CBD5E1 !important; }
         </style>
     """, unsafe_allow_html=True)
 
-# --- MASTER DATABASE MEMORY INITIALIZATION ---
-if "tracker_db" not in st.session_state:
-    st.session_state.tracker_db = pd.DataFrame(columns=[
-        "Time_Log", "Customer_Name", "Customer_Phone", "Receiver_Name", "Delivery_Address", "Receiver_Phone", "Payment_Status"
-    ])
-
-# --- APP HEADER ---
+# --- APPLICATION HEADER BAR ---
 st.title("🛍️ Fabskollexionn Customer & Delivery Tracker")
-st.markdown("Streamlined tracking workspace designed for fast, frictionless logging on web and mobile devices.")
+st.markdown("Copy, paste, and commit unstructured customer lists straight into your core operational dataset.")
 st.markdown("---")
 
-# Navigation Tabs (Requirement 6 & 8)
-tab_input, tab_view = st.tabs(["📥 Log New Order", "📊 View Data & Export"])
+# Navigation Tabs Framework
+tab_paste, tab_view = st.tabs(["📥 Quick Paste Workspace", "📊 View Data & Cloud Exports"])
 
-# --- TAB 1: FORM INPUT LOGGING ---
-with tab_input:
-    st.markdown("### Enter Order Dispatch Particulars")
+# --- TAB 1: PASTE PARSER ENGINE WORKSPACE ---
+with tab_paste:
+    st.markdown(f"### <span style='color:{accent_color}'>Paste Raw Customer Dispatch Block</span>", unsafe_allow_html=True)
     
-    with st.form("order_submission_form", clear_on_submit=True):
-        col_c1, col_c2 = st.columns(2)
-        with col_c1:
-            c_name = st.text_input("👤 Customer Name")
-            c_phone = st.text_input("📞 Customer Phone Number")
-        with col_c2:
-            r_name = st.text_input("🎁 Receiver Name (If different)")
-            r_phone = st.text_input("📱 Receiver Phone Number")
-            
-        d_address = st.text_area("📍 Complete Delivery Address", height=80)
+    placeholder_text = (
+        "Customer Name: Adefarasin John\n"
+        "Customer Phone No: 09071234567\n"
+        "Receiver Name: Pelumi Odulaja\n"
+        "Address: 10 Surulere, Lagos State\n"
+        "Receiver Phone No: 08081234567"
+    )
+    
+    raw_pasted_text = st.text_area(
+        "Drop the plain text string block here directly from your DMs or chats:", 
+        height=220, 
+        placeholder=placeholder_text
+    )
+    
+    # Context Processing Parameters
+    col_opt1, col_opt2 = st.columns(2)
+    with col_opt1:
+        payment_condition = st.selectbox("💳 Direct Ledger Payment Status", ["Paid", "Pending Verify", "COD - Cash on Delivery"])
+    with col_opt2:
+        source_channel = st.selectbox("📱 Marketplace Origin Channel", ["Instagram DMs", "WhatsApp Business", "TikTok Direct", "Facebook DM"])
         
-        # Cool Bonus Feature (Requirement 9): Dropdown to catch payment mode context
-        col_b1, col_b2 = st.columns(2)
-        with col_b1:
-            p_status = st.selectbox("💳 Payment Status", ["Paid", "Pending Payment", "Cash on Delivery"])
-        with col_b2:
-            p_channel = st.selectbox("🌐 Sales Channel Source", ["Instagram DMs", "WhatsApp Business", "Facebook Messenger", "TikTok Shop"])
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    if st.button("⚡ Parse Block & Commit Row", type="primary", use_container_width=True):
+        if raw_pasted_text.strip():
+            # Trigger parsing dictionary processing framework
+            parsed_data = extract_order_details(raw_pasted_text)
             
-        submit_btn = st.form_submit_with_sidebar_status(label="⚡ Commit Order to Ledger") if hasattr(st, "form_submit_with_sidebar_status") else st.form_submit_button("⚡ Commit Order to Ledger")
-
-    if submit_btn:
-        if c_name.strip() and d_address.strip():
-            # Generate automatic system parameters (Requirement 3)
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
-            # Map Fallback if Receiver field is left blank by user
-            final_recv_name = r_name.strip() if r_name.strip() else c_name.strip()
-            final_recv_phone = r_phone.strip() if r_phone.strip() else c_phone.strip()
-            
-            # Construct dictionary line row
-            new_row = {
-                "Time_Log": timestamp,
-                "Customer_Name": c_name.strip(),
-                "Customer_Phone": p_channel if p_channel else c_phone.strip(), # Blends source channel for analyst usage
-                "Receiver_Name": final_recv_name,
-                "Delivery_Address": d_address.strip(),
-                "Receiver_Phone": final_recv_phone,
-                "Payment_Status": p_status
-            }
-            
-            # Append smoothly directly onto master session frame
-            st.session_state.tracker_db = pd.concat([st.session_state.tracker_db, pd.DataFrame([new_row])], ignore_index=True)
-            st.success(f"🎉 Order row added successfully for {c_name} at {timestamp}!")
+            # Defensive check: verify that at least a name or address was extracted
+            if parsed_data["Customer_Name"] != "Not Provided" or parsed_data["Delivery_Address"] != "Not Provided":
+                timestamp_log = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
+                # Assemble structured ledger row data matrix map
+                final_row = {
+                    "Time_Log": timestamp_log,
+                    "Customer_Name": parsed_data["Customer_Name"],
+                    "Customer_Phone": parsed_data["Customer_Phone"],
+                    "Receiver_Name": parsed_data["Receiver_Name"],
+                    "Delivery_Address": parsed_data["Delivery_Address"],
+                    "Receiver_Phone": parsed_data["Receiver_Phone"],
+                    "Status": f"{payment_condition} ({source_channel})"
+                }
+                
+                # Commit seamlessly into persistent memory block stack
+                st.session_state.tracker_db = pd.concat([st.session_state.tracker_db, pd.DataFrame([final_row])], ignore_index=True)
+                
+                # High-contrast execution container notice layout
+                st.markdown(f"""
+                <div style="background-color: #10B981; padding: 15px; border-radius: 8px; color: white; font-weight: bold; margin-bottom: 15px;">
+                    🎯 Success! Record saved smoothly for {final_row['Customer_Name']} at {final_row['Time_Log']}.
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Instantly spit back a validation receipt copy box
+                st.markdown("#### Outbound Confirmation Copy Block")
+                outbound_receipt = (
+                    f"Hello {final_row['Customer_Name']},\n\n"
+                    f"We've successfully logged your order delivery details! ✨\n\n"
+                    f"📦 Dispatch To: {final_row['Receiver_Name']}\n"
+                    f"📍 Target Address: {final_row['Delivery_Address']}\n"
+                    f"📞 Delivery Hotline: {final_row['Receiver_Phone']}\n\n"
+                    f"Thank you for shopping with Fabskollexionn! 🛍️"
+                )
+                st.text_area("Copy and send directly to customer chat window:", value=outbound_receipt, height=140)
+            else:
+                st.markdown("""
+                <div style="background-color: #EF4444; padding: 15px; border-radius: 8px; color: white; font-weight: bold;">
+                    ⚠️ Parse Error: Could not extract details. Make sure your text contains indicators like 'Customer Name:' and 'Address:'.
+                </div>
+                """, unsafe_allow_html=True)
         else:
-            st.error("⚠️ Validation Error: 'Customer Name' and 'Delivery Address' fields cannot be blank.")
+            st.error("Text field is currently completely empty.")
 
-# --- TAB 2: DATA REGISTRY ENGINE & DATA MANAGEMENT ---
+# --- TAB 2: DATA REGISTRY ENGINE (VIEW DATA) ---
 with tab_view:
-    st.markdown("### 📑 Master Delivery Database Ledger")
+    st.markdown(f"### <span style='color:{accent_color}'>View Data & File Exporters</span>", unsafe_allow_html=True)
     
-    current_df = st.session_state.tracker_db
+    current_ledger_df = st.session_state.tracker_db
     
-    if not current_df.empty:
-        # --- EXPORT MANAGEMENT (Requirement 5) ---
-        st.markdown("#### 📥 Global Format Downloader Options")
-        exp_col1, exp_col2, exp_col3 = st.columns(3)
+    if not current_ledger_df.empty:
+        # Export Actions Panel Row
+        col_dl1, col_dl2, col_dl3 = st.columns(3)
         
-        # 1. CSV Download
-        csv_buffer = current_df.to_csv(index=False).encode('utf-8')
-        exp_col1.download_button(
-            label="📄 Download Data as CSV",
-            data=csv_buffer,
-            file_name="fabskollexionn_ledger.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
+        # CSV Downloader Compilation Engine
+        csv_bin = current_ledger_df.to_csv(index=False).encode('utf-8')
+        col_dl1.download_button("📄 Download Master CSV File", csv_bin, "fabskollexionn_ledger.csv", "text/csv", use_container_width=True)
         
-        # 2. Excel (XLSX) Download
-        xlsx_buffer = io.BytesIO()
-        with pd.ExcelWriter(xlsx_buffer, engine='openpyxl') as writer:
-            current_df.to_excel(writer, index=False, sheet_name="Deliveries")
-        xlsx_buffer.seek(0)
-        exp_col2.download_button(
-            label="📈 Download Data as Excel (.xlsx)",
-            data=xlsx_buffer,
-            file_name="fabskollexionn_ledger.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
+        # Excel Engine File Generator Loop
+        xlsx_io = io.BytesIO()
+        with pd.ExcelWriter(xlsx_io, engine='openpyxl') as wr:
+            current_ledger_df.to_excel(wr, index=False, sheet_name="DeliveriesMaster")
+        xlsx_io.seek(0)
+        col_dl2.download_button("📈 Download Excel Ledger (.xlsx)", xlsx_io, "fabskollexionn_ledger.xlsx", use_container_width=True)
         
-        # 3. PDF Download
-        pdf_buffer = generate_pdf(current_df)
-        exp_col3.download_button(
-            label="📕 Download Data as Document (PDF)",
-            data=pdf_buffer,
-            file_name="fabskollexionn_ledger.pdf",
-            mime="application/pdf",
-            use_container_width=True
-        )
+        # PDF Exporter Engine File Generator Loop
+        pdf_io = generate_pdf(current_ledger_df)
+        col_dl3.download_button("📕 Export Professional PDF Document", pdf_io, "fabskollexionn_ledger.pdf", "application/pdf", use_container_width=True)
         
         st.markdown("---")
         
-        # --- DELETION MANAGEMENT MECHANICS (Requirement 4) ---
-        st.markdown("#### 🛠️ Manage Dataset Matrix Rows")
+        # Row Multi-Selection Drop deletion mechanism
+        st.markdown("#### 🚨 Drop Specified Data Rows")
+        deletion_registry_options = [f"Index Row {i} | {row['Customer_Name']} ➡️ {row['Receiver_Name']}" for i, row in current_ledger_df.iterrows()]
+        target_indices_to_drop = st.multiselect("Select the target data row strings you intend to delete permanently:", options=deletion_registry_options)
         
-        # Provide a interactive multi-select widget referencing indices for rows to pop out
-        row_options = [f"Row {idx} | {row['Customer_Name']} ➡️ {row['Receiver_Name']}" for idx, row in current_df.iterrows()]
-        selected_rows_to_delete = st.multiselect("🚨 Select row items you want to delete from the active frame ledger:", options=row_options)
-        
-        if st.button("🗑️ Delete Selected Rows permanently", type="secondary"):
-            if selected_rows_to_delete:
-                # Extract integer index value out from the string option presentation
-                indices_to_drop = [int(item.split(" ")[1]) for item in selected_rows_to_delete]
-                st.session_state.tracker_db = current_df.drop(indices_to_drop).reset_index(drop=True)
-                st.toast("Selected rows removed smoothly.")
+        if st.button("🗑️ Drop Selection Permanently from Base DataFrame", type="secondary"):
+            if target_indices_to_drop:
+                clean_target_integers = [int(item.split(" ")[2]) for item in target_indices_to_drop]
+                st.session_state.tracker_db = current_ledger_df.drop(clean_target_integers).reset_index(drop=True)
+                st.toast("Selected data metrics dropped from session DataFrame frame.")
                 st.rerun()
-            else:
-                st.warning("Please choose at least one item from the checkbox list above.")
-                
-        # --- VIEW DATA PORTAL DISPLAY (Requirement 8) ---
-        st.markdown("#### 👁️ Live Frame Matrix")
+        
+        st.markdown("---")
+        
+        # Render Interactive Full Data Frame Layout (Requirement 8)
+        st.markdown("#### 👁️ Current Master DataFrame Matrix")
         st.dataframe(st.session_state.tracker_db, use_container_width=True)
         
     else:
-        st.info("The ledger matrix dataset is completely empty right now. Go log an active customer delivery entry inside the input panel form tab.")
+        st.info("The system database ledger dataframe is currently clean and empty. Log verified orders inside the quick paste workspace tab.")
