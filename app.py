@@ -315,8 +315,10 @@ with tab_dash:
     
     if not dash_df.empty:
         total_orders = len(dash_df)
-        unique_customers = dash_df['Customer_Name'].nunique()
-        repeat_customers = sum(dash_df['Customer_Name'].value_counts() > 1)
+        
+        # FIX: Using phone numbers as the source of truth for unique and repeat customer logic
+        unique_customers = dash_df['Customer_Phone'].nunique()
+        repeat_customers = sum(dash_df['Customer_Phone'].value_counts() > 1)
         
         col_m1, col_m2, col_m3 = st.columns(3)
         with col_m1:
@@ -329,19 +331,28 @@ with tab_dash:
         st.markdown("---")
         
         st.markdown("#### 📈 Customer Patronage Leaderboard")
-        st.markdown("This live table ranks your customers based on how many times they have placed orders.")
+        st.markdown("This live table ranks your customers based on their unique phone numbers.")
         
-        leaderboard = dash_df.groupby(['Customer_Name', 'Customer_Phone']).size().reset_index(name='Total_Patronage_Count')
+        # Grouping by phone number ensures accuracy, while 'first' grabs the most recently logged name variation
+        leaderboard = dash_df.groupby('Customer_Phone').agg(
+            Customer_Name=('Customer_Name', 'first'),
+            Total_Patronage_Count=('id', 'count')
+        ).reset_index()
+        
         leaderboard = leaderboard.sort_values(by='Total_Patronage_Count', ascending=False).reset_index(drop=True)
-        leaderboard.columns = ["👑 Customer Name", "📞 Phone / Contact Channel", "🛍️ Times Patronized"]
         
-        vip_customer = leaderboard.iloc[0]["👑 Customer Name"]
+        # Rearrange columns for display: Name first, then Phone, then Count
+        leaderboard = leaderboard[["Customer_Name", "Customer_Phone", "Total_Patronage_Count"]]
+        leaderboard.columns = ["👑 Customer Name Reference", "📞 Unique Phone Number", "🛍️ Times Patronized"]
+        
+        vip_customer = leaderboard.iloc[0]["👑 Customer Name Reference"]
+        vip_phone = leaderboard.iloc[0]["📞 Unique Phone Number"]
         vip_count = leaderboard.iloc[0]["🛍️ Times Patronized"]
         
         st.markdown(f"""
         <div style="background-color: #1E293B; border-left: 5px solid #38BDF8; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
             <span style="color: #38BDF8; font-weight: bold;">✨ VIP Customer Alert:</span><br>
-            <strong style="color: white; font-size: 18px;">{vip_customer}</strong> is currently your top customer, patronizing your brand <strong>{vip_count} times</strong>!
+            The customer with phone number <strong style="color: white;">{vip_phone}</strong> (<span style="color: #94A3B8;">{vip_customer}</span>) is your top patron, ordering <strong>{vip_count} times</strong>!
         </div>
         """, unsafe_allow_html=True)
         
