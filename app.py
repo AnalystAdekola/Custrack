@@ -181,7 +181,7 @@ with head_toggle_col:
 with head_title_col:
     st.title("🛍️ Fabskollexionn Customer & Delivery Tracker")
 
-# --- HIGH-CONTRAST GLOBAL CSS ENGINE WITH FIX FOR INPUT BOXES ---
+# --- COMPREHENSIVE COMPONENT-SPECIFIC STYLE MACHINE ---
 if st.session_state.theme_dark:
     text_color = "#F8FAFC"
     accent_color = "#38BDF8"
@@ -190,13 +190,13 @@ if st.session_state.theme_dark:
     
     st.markdown(f"""
         <style>
-        /* Base page canvas background setup */
+        /* Base application layout settings */
         html, body, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {{
             background-color: #0F172A !important;
             color: {text_color} !important;
             font-family: 'Inter', -apple-system, sans-serif !important;
         }}
-        /* Structural lettering headers and title tags */
+        /* Main background typography headers and tracking titles */
         h1, h2, h3, h4, h5, h6, p, label, span, small, strong, [data-testid="stMarkdownContainer"] p {{
             color: {text_color} !important;
         }}
@@ -208,18 +208,38 @@ if st.session_state.theme_dark:
             color: {accent_color} !important;
             font-weight: 600 !important;
         }}
-        /* CRITICAL FIXED RULE: Forces dark legible text specifically inside white/light input fields */
+        /* 1. TEXT ENTRY FIELDS & SELECT DROPDOWNS: Clear dark legible text on white box elements */
         .stSelectbox div[data-baseweb="select"], 
         .stSelectbox div[data-baseweb="select"] *,
         .stTextInput input, 
         .stTextArea textarea,
         div[role="listbox"] ul li,
         div[data-baseweb="popover"] *,
-        input, textarea, select {{
+        input, textarea, select, option {{
             color: #0F172A !important;
             font-weight: 500 !important;
         }}
-        /* Keep database dataframe text items contrasting against their row arrays */
+        /* 2. COMPREHENSIVE BUTTONS FIX: Targets standard actions, downloads, and custom theme switch buttons */
+        div.stButton button, 
+        div.stDownloadButton button,
+        [data-testid="stBaseButton-primary"],
+        [data-testid="stBaseButton-secondary"] {{
+            background-color: #38BDF8 !important;
+            color: #0F172A !important;
+            border: 1px solid #38BDF8 !important;
+            font-weight: bold !important;
+        }}
+        /* Hover effect for cleaner user interaction */
+        div.stButton button:hover, div.stDownloadButton button:hover {{
+            background-color: #0EA5E9 !important;
+            color: #FFFFFF !important;
+            border: 1px solid #0EA5E9 !important;
+        }}
+        /* 3. MULTISELECT & DELETION SELECTION FIELDS */
+        div[data-baseweb="multiselect"] span, div[data-baseweb="multiselect"] div {{
+            color: #0F172A !important;
+        }}
+        /* Keep grid matrices contrasting safely */
         div[data-testid="stDataFrame"] *, div[data-testid="data-grid"] * {{
             color: #FFFFFF !important;
         }}
@@ -245,6 +265,16 @@ else:
             background-color: {card_bg} !important;
             color: {text_color} !important;
             border: 1px solid {border_color} !important;
+        }}
+        /* Normal button structure definitions for corporate light theme consistency */
+        div.stButton button, div.stDownloadButton button {{
+            background-color: #1E3A8A !important;
+            color: #FFFFFF !important;
+            border: 1px solid #1E3A8A !important;
+        }}
+        div.stButton button:hover, div.stDownloadButton button:hover {{
+            background-color: #1D4ED8 !important;
+            color: #FFFFFF !important;
         }}
         .stTabs [data-baseweb="tab"] {{
             color: #475569 !important;
@@ -485,7 +515,7 @@ with tab_dash:
         
         # High contrast fallback colors for dynamic loyalty alert box components
         alert_box_bg = "#1E293B" if st.session_state.theme_dark else "#E2E8F0"
-        alert_text_base = "#FFFFFF" if st.session_state.theme_dark else "#1E293B"
+        alert_text_base = "#FFFFFF" if st.session_state.theme_dark else "#1E3A8A"
         
         st.markdown(f"""
         <div style="background-color: {alert_box_bg}; border-left: 5px solid #38BDF8; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
