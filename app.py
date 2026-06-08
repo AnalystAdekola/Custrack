@@ -170,7 +170,6 @@ if "theme_dark" not in st.session_state:
 head_title_col, head_toggle_col = st.columns([15, 1])
 
 with head_toggle_col:
-    # Explicit container padding prevents button labels from being cropped or hidden
     st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
     bulb_label = "💡 On" if st.session_state.theme_dark else "💡 Off"
     help_hint = "Switch to Light Mode" if st.session_state.theme_dark else "Switch to Dark Mode"
@@ -182,7 +181,7 @@ with head_toggle_col:
 with head_title_col:
     st.title("🛍️ Fabskollexionn Customer & Delivery Tracker")
 
-# --- HIGH-CONTRAST GLOBAL CSS WORKSPACE SYSTEM ---
+# --- HIGH-CONTRAST GLOBAL PROFESSIONAL CSS OVERRIDES ---
 if st.session_state.theme_dark:
     text_color = "#F8FAFC"
     accent_color = "#38BDF8"
@@ -191,27 +190,41 @@ if st.session_state.theme_dark:
     
     st.markdown(f"""
         <style>
-        html, body, [data-testid="stAppViewContainer"] {{
+        /* Base application background workspace */
+        html, body, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {{
             background-color: #0F172A !important;
             color: {text_color} !important;
             font-family: 'Inter', -apple-system, sans-serif !important;
         }}
-        /* Target headers, body markers, select labels, and custom text blocks */
-        h1, h2, h3, h4, h5, h6, p, label, span, sm, [data-testid="stMarkdownContainer"] p {{
+        /* Force color visibility on all generic typographic elements */
+        h1, h2, h3, h4, h5, h6, p, label, span, small, strong, [data-testid="stMarkdownContainer"] p {{
             color: {text_color} !important;
         }}
-        /* Force standard visibility across inputs and drop-downs */
-        .stSelectbox div[data-baseweb="select"], .stTextInput input, .stTextArea textarea {{
+        /* Fix hidden select boxes text, selected options, and input values */
+        .stSelectbox div[data-baseweb="select"], 
+        .stSelectbox data-baseweb="select" span,
+        .stTextInput input, 
+        .stTextArea textarea,
+        div[role="listbox"] ul li,
+        div[data-baseweb="popover"] {{
             background-color: {card_bg} !important;
             color: #FFFFFF !important;
-            border: 1px solid {border_color} !important;
         }}
+        /* Ensure dropdown label lists and text arrays inside input fields stay legible */
+        input, textarea, select, [data-baseweb="select"] * {{
+            color: #FFFFFF !important;
+        }}
+        /* Make sure tab selectors are stark and clearly readable */
         .stTabs [data-baseweb="tab"] {{
             color: #94A3B8 !important;
         }}
         .stTabs [aria-selected="true"] {{
             color: {accent_color} !important;
             font-weight: 600 !important;
+        }}
+        /* Fix native interactive dataframes from hiding metrics under black fonts */
+        div[data-testid="stDataFrame"] *, div[data-testid="data-grid"] * {{
+            color: #FFFFFF !important;
         }}
         </style>
     """, unsafe_allow_html=True)
@@ -223,12 +236,12 @@ else:
     
     st.markdown(f"""
         <style>
-        html, body, [data-testid="stAppViewContainer"] {{
+        html, body, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {{
             background-color: #F8FAFC !important;
             color: {text_color} !important;
             font-family: 'Inter', -apple-system, sans-serif !important;
         }}
-        h1, h2, h3, h4, h5, h6, p, label, span, [data-testid="stMarkdownContainer"] p {{
+        h1, h2, h3, h4, h5, h6, p, label, span, strong, [data-testid="stMarkdownContainer"] p {{
             color: {text_color} !important;
         }}
         .stSelectbox div[data-baseweb="select"], .stTextInput input, .stTextArea textarea {{
@@ -268,9 +281,9 @@ with tab_paste:
     
     col_opt1, col_opt2 = st.columns(2)
     with col_opt1:
-        payment_condition = st.selectbox("💳 Direct Ledger Payment Status", ["Paid", "Pending Verify", "COD - Cash on Delivery"])
+        payment_condition = st.selectbox("Direct Ledger Payment Status", ["Paid", "Pending Verify", "COD - Cash on Delivery"])
     with col_opt2:
-        source_channel = st.selectbox("📱 Marketplace Origin Channel", ["Instagram DMs", "WhatsApp Business", "TikTok Direct", "Facebook DM"])
+        source_channel = st.selectbox("Marketplace Origin Channel", ["Instagram DMs", "WhatsApp Business", "TikTok Direct", "Facebook DM"])
         
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -345,27 +358,27 @@ with tab_view:
         
         with f_col1:
             month_list = ["All"] + sorted(arranged_df['Log_Month'].unique().tolist())
-            sel_month = st.selectbox("📅 Filter Log Month", month_list)
+            sel_month = st.selectbox("Log Month", month_list)
         with f_col2:
             day_list = ["All"] + sorted(arranged_df['Day_of_Week'].unique().tolist())
-            sel_day = st.selectbox("📆 Filter Weekday", day_list)
+            sel_day = st.selectbox("Weekday", day_list)
         with f_col3:
             state_list = ["All"] + sorted(arranged_df['Receiver_State'].unique().tolist())
-            sel_state = st.selectbox("📍 Filter Receiver State", state_list)
+            sel_state = st.selectbox("Receiver State", state_list)
         with f_col4:
             pay_list = ["All"] + sorted(arranged_df['Payment_Status'].unique().tolist())
-            sel_pay = st.selectbox("💳 Filter Payment Status", pay_list)
+            sel_pay = st.selectbox("Payment Status", pay_list)
         with f_col5:
             chan_list = ["All"] + sorted(arranged_df['Marketplace_Channel'].unique().tolist())
-            sel_chan = st.selectbox("📱 Filter Channel", chan_list)
+            sel_chan = st.selectbox("Marketplace Channel", chan_list)
         with f_col6:
             cust_list = ["All"] + sorted(arranged_df['Customer_Name'].unique().tolist())
-            sel_cust = st.selectbox("👤 Filter Customer Name", cust_list)
+            sel_cust = st.selectbox("Customer Name", cust_list)
         with f_col7:
             phone_list = ["All"] + sorted(arranged_df['Customer_Phone'].unique().tolist())
-            sel_phone = st.selectbox("📞 Filter Customer Phone", phone_list)
+            sel_phone = st.selectbox("Customer Phone", phone_list)
         with f_col8:
-            text_address_query = st.text_input("🏠 Search Street Address", placeholder="Type keywords...").strip().lower()
+            text_address_query = st.text_input("Street Address Search", placeholder="Type keywords...").strip().lower()
 
         # --- CASCADE FILTERING CALCULATOR ---
         filtered_df = arranged_df.copy()
@@ -416,7 +429,7 @@ with tab_view:
         
         if deletion_options:
             target_selections = st.multiselect(
-                "Select the specific records to remove permanently from storage file:", 
+                "Select specific records to remove from storage file:", 
                 options=list(deletion_options.keys())
             )
             
