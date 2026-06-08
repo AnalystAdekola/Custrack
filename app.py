@@ -160,8 +160,7 @@ def extract_order_details(text_block):
 
 
 # --- STREAMLIT PAGE SETUP ---
-# Enabled sidebar visibility by default so the spreadsheet filters are obvious to the user
-st.set_page_config(page_title="Fabskollexionn Tracker", page_icon="🛍️", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Fabskollexionn Tracker", page_icon="🛍️", layout="wide", initial_sidebar_state="collapsed")
 
 # --- FIXED DUAL THEME MECHANICS ---
 theme_choice = st.radio("🌓 Toggle Workspace Theme:", ["Light Mode", "Dark Mode"], horizontal=True)
@@ -191,83 +190,6 @@ st.title("🛍️ Fabskollexionn Customer & Delivery Tracker")
 st.markdown("Copy, paste, and permanently lock data rows onto local database storage.")
 st.markdown("---")
 
-
-# --- GLOBAL DATA ENGINE FETCHING (To power both Sidebar Filters and Tabs) ---
-raw_ledger_df = load_orders_from_db()
-
-if not raw_ledger_df.empty:
-    # Process backend timestamps into clean analytics elements
-    date_objects = pd.to_datetime(raw_ledger_df['Time_Log'], errors='coerce')
-    raw_ledger_df['Log_Month'] = date_objects.dt.strftime('%B').fillna('Unknown')
-    raw_ledger_df['Day_of_Week'] = date_objects.dt.strftime('%A').fillna('Unknown')
-    
-    # Generate structured base array mapping matrix
-    master_df = raw_ledger_df[[
-        'id', 'Log_Month', 'Day_of_Week', 'Customer_Name', 'Customer_Phone', 
-        'Receiver_Name', 'Delivery_Address', 'Receiver_State', 'Receiver_Phone', 
-        'Payment_Status', 'Marketplace_Channel'
-    ]]
-else:
-    master_df = pd.DataFrame()
-
-
-# --- EXCEL-STYLE SIDEBAR COLUMN FILTERS ---
-filtered_df = master_df.copy()
-
-with st.sidebar:
-    st.markdown("### 🗂️ Excel Column Filters")
-    st.markdown("Select items in any column to filter the table immediately—just like spreadsheet dropdowns.")
-    
-    if not master_df.empty:
-        # 1. Filter by Log Month
-        distinct_months = sorted(master_df['Log_Month'].unique())
-        selected_months = st.multiselect("📅 Filter by Month", options=distinct_months)
-        if selected_months:
-            filtered_df = filtered_df[filtered_df['Log_Month'].isin(selected_months)]
-            
-        # 2. Filter by Day of Week
-        distinct_days = sorted(master_df['Day_of_Week'].unique())
-        selected_days = st.multiselect("📆 Filter by Day of Week", options=distinct_days)
-        if selected_days:
-            filtered_df = filtered_df[filtered_df['Day_of_Week'].isin(selected_days)]
-            
-        # 3. Filter by Receiver State/Province
-        distinct_states = sorted(master_df['Receiver_State'].unique())
-        selected_states = st.multiselect("📍 Filter by State/Province", options=distinct_states)
-        if selected_states:
-            filtered_df = filtered_df[filtered_df['Receiver_State'].isin(selected_states)]
-            
-        # 4. Filter by Payment Status
-        distinct_payments = sorted(master_df['Payment_Status'].unique())
-        selected_payments = st.multiselect("💳 Filter by Payment Status", options=distinct_payments)
-        if selected_payments:
-            filtered_df = filtered_df[filtered_df['Payment_Status'].isin(selected_payments)]
-            
-        # 5. Filter by Marketplace Channel
-        distinct_channels = sorted(master_df['Marketplace_Channel'].unique())
-        selected_channels = st.multiselect("📱 Filter by Platform Channel", options=distinct_channels)
-        if selected_channels:
-            filtered_df = filtered_df[filtered_df['Marketplace_Channel'].isin(selected_channels)]
-            
-        # 6. Granular Text Search Box for manual overriding
-        st.markdown("---")
-        text_search = st.text_input("🔍 Keyword Search (Name/Phone/Address)", placeholder="Type custom keyword...").strip().lower()
-        if text_search:
-            filtered_df = filtered_df[
-                filtered_df['Customer_Name'].str.lower().str.contains(text_search, na=False) |
-                filtered_df['Receiver_Name'].str.lower().str.contains(text_search, na=False) |
-                filtered_df['Customer_Phone'].str.lower().str.contains(text_search, na=False) |
-                filtered_df['Receiver_Phone'].str.lower().str.contains(text_search, na=False) |
-                filtered_df['Delivery_Address'].str.lower().str.contains(text_search, na=False)
-            ]
-            
-        if st.button("🔄 Reset All Filters", use_container_width=True):
-            st.rerun()
-    else:
-        st.caption("Add data to unlock spreadsheet column filters.")
-
-
-# --- APPLICATION TABS NAVIGATION ---
 tab_paste, tab_view, tab_dash = st.tabs(["📥 Quick Paste Workspace", "📊 View Data & Cloud Exports", "🏆 Patronage Dashboard"])
 
 # --- TAB 1: PASTE WORKSPACE ---
@@ -332,21 +254,86 @@ with tab_paste:
                     f"Thank you for shopping with Fabskollexionn! 🛍️"
                 )
                 st.text_area("Copy and send directly to customer:", value=outbound_receipt, height=140)
-                st.rerun()
             else:
                 st.error("Parse Error: Could not extract details. Check text tags.")
         else:
             st.error("Text field is empty.")
 
-# --- TAB 2: DATA REGISTRY ENGINE ---
+# --- TAB 2: DATA REGISTRY ENGINE (WITH EXCEL-STYLE DROPDOWN FILTERS) ---
 with tab_view:
     st.markdown(f"### <span style='color:{accent_color}'>View Data & File Exporters</span>", unsafe_allow_html=True)
     
-    if not master_df.empty:
-        st.caption(f"Showing {len(filtered_df)} of {len(master_df)} records based on active sidebar filters.")
+    raw_ledger_df = load_orders_from_db()
+    
+    if not raw_ledger_df.empty:
+        # --- DATETIME TRANSFORMATION ENGINE ---
+        date_objects = pd.to_datetime(raw_ledger_df['Time_Log'], errors='coerce')
+        raw_ledger_df['Log_Month'] = date_objects.dt.strftime('%B').fillna('Unknown')
+        raw_ledger_df['Day_of_Week'] = date_objects.dt.strftime('%A').fillna('Unknown')
+        
+        # Structural Reordering Matrix
+        arranged_df = raw_ledger_df[[
+            'id', 'Log_Month', 'Day_of_Week', 'Customer_Name', 'Customer_Phone', 
+            'Receiver_Name', 'Delivery_Address', 'Receiver_State', 'Receiver_Phone', 
+            'Payment_Status', 'Marketplace_Channel'
+        ]]
 
+        # --- EXCEL INTERACTIVE FILTER ROW ---
+        st.markdown("#### 📑 Excel Column-Level Filter Dropdowns")
+        
+        # We split the workspace into a neat grid row to present options cleanly across devices
+        f_col1, f_col2, f_col3, f_col4 = st.columns(4)
+        f_col5, f_col6, f_col7, f_col8 = st.columns(4)
+        
+        with f_col1:
+            month_list = ["All"] + sorted(arranged_df['Log_Month'].unique().tolist())
+            sel_month = st.selectbox("📅 Filter Log Month", month_list)
+        with f_col2:
+            day_list = ["All"] + sorted(arranged_df['Day_of_Week'].unique().tolist())
+            sel_day = st.selectbox("📆 Filter Weekday", day_list)
+        with f_col3:
+            state_list = ["All"] + sorted(arranged_df['Receiver_State'].unique().tolist())
+            sel_state = st.selectbox("📍 Filter Receiver State", state_list)
+        with f_col4:
+            pay_list = ["All"] + sorted(arranged_df['Payment_Status'].unique().tolist())
+            sel_pay = st.selectbox("💳 Filter Payment Status", pay_list)
+        with f_col5:
+            chan_list = ["All"] + sorted(arranged_df['Marketplace_Channel'].unique().tolist())
+            sel_chan = st.selectbox("📱 Filter Channel", chan_list)
+        with f_col6:
+            cust_list = ["All"] + sorted(arranged_df['Customer_Name'].unique().tolist())
+            sel_cust = st.selectbox("👤 Filter Customer Name", cust_list)
+        with f_col7:
+            phone_list = ["All"] + sorted(arranged_df['Customer_Phone'].unique().tolist())
+            sel_phone = st.selectbox("📞 Filter Customer Phone", phone_list)
+        with f_col8:
+            # Quick text query bar to catch custom long-tail physical delivery addresses
+            text_address_query = st.text_input("🏠 Search Street Address", placeholder="Type keywords...").strip().lower()
+
+        # --- CASCADE FILTERING CALCULATOR ---
+        filtered_df = arranged_df.copy()
+        
+        if sel_month != "All":
+            filtered_df = filtered_df[filtered_df['Log_Month'] == sel_month]
+        if sel_day != "All":
+            filtered_df = filtered_df[filtered_df['Day_of_Week'] == sel_day]
+        if sel_state != "All":
+            filtered_df = filtered_df[filtered_df['Receiver_State'] == sel_state]
+        if sel_pay != "All":
+            filtered_df = filtered_df[filtered_df['Payment_Status'] == sel_pay]
+        if sel_chan != "All":
+            filtered_df = filtered_df[filtered_df['Marketplace_Channel'] == sel_chan]
+        if sel_cust != "All":
+            filtered_df = filtered_df[filtered_df['Customer_Name'] == sel_cust]
+        if sel_phone != "All":
+            filtered_df = filtered_df[filtered_df['Customer_Phone'] == sel_phone]
+        if text_address_query:
+            filtered_df = filtered_df[filtered_df['Delivery_Address'].str.lower().str.contains(text_address_query, na=False)]
+
+        st.caption(f"Showing {len(filtered_df)} of {len(arranged_df)} records matching active criteria filters.")
+
+        # --- EXPORT ACTIONS PANEL ---
         col_dl1, col_dl2, col_dl3 = st.columns(3)
-        # Drop the SQLite hidden database row reference for clean user downloads
         export_df = filtered_df.drop(columns=["id"], errors="ignore")
         
         csv_bin = export_df.to_csv(index=False).encode('utf-8')
@@ -363,6 +350,7 @@ with tab_view:
         
         st.markdown("---")
         
+        # --- SMART DELETION MANAGEMENT ---
         st.markdown("#### 🚨 Delete Specified Data Rows")
         deletion_options = {
             f"Row ID {row['id']} | {row['Customer_Name']} ({row['Log_Month']}, {row['Day_of_Week']})": row['id']
@@ -382,7 +370,7 @@ with tab_view:
                     st.toast("Selected rows dropped from database file successfully.")
                     st.rerun()
         else:
-            st.info("No rows match your current column filters to display for deletion.")
+            st.info("No matching rows found to delete based on your current filters.")
         
         st.markdown("---")
         st.markdown("#### 👁️ Live Filtered DataFrame Matrix")
@@ -395,11 +383,12 @@ with tab_view:
 with tab_dash:
     st.markdown(f"### <span style='color:{accent_color}'>🏆 Fabskollexionn Customer Loyalty Insights</span>", unsafe_allow_html=True)
     
-    # Dashboards read from the filtered view so analytics adjust as you filter by state, month, etc.!
-    if not filtered_df.empty:
-        total_orders = len(filtered_df)
-        unique_customers = filtered_df['Customer_Phone'].nunique()
-        repeat_customers = sum(filtered_df['Customer_Phone'].value_counts() > 1)
+    dash_df = load_orders_from_db()
+    
+    if not dash_df.empty:
+        total_orders = len(dash_df)
+        unique_customers = dash_df['Customer_Phone'].nunique()
+        repeat_customers = sum(dash_df['Customer_Phone'].value_counts() > 1)
         
         col_m1, col_m2, col_m3 = st.columns(3)
         with col_m1:
@@ -414,7 +403,7 @@ with tab_dash:
         st.markdown("#### 📈 Customer Patronage Leaderboard")
         st.markdown("This live table ranks your customers based on their unique phone numbers.")
         
-        leaderboard = filtered_df.groupby('Customer_Phone').agg(
+        leaderboard = dash_df.groupby('Customer_Phone').agg(
             Customer_Name=('Customer_Name', 'first'),
             Total_Patronage_Count=('id', 'count')
         ).reset_index()
@@ -437,4 +426,4 @@ with tab_dash:
         st.dataframe(leaderboard, use_container_width=True)
         
     else:
-        st.info("No data entries match your current column criteria to generate insights.")
+        st.info("No analytics data available yet. Once you begin saving order entries in Tab 1, your loyalty metrics will populate here automatically.")
