@@ -15,9 +15,11 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 DB_FILE = "fabskollexionn.db"
 
 def init_db():
-    """Initializes the local database file and creates/updates tables as required."""
+    """Initializes the database file and dynamically updates schema variations safely."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+    
+    # Core Table Setup
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -31,36 +33,52 @@ def init_db():
         )
     """)
     
-    # DYNAMIC DATA MIGRATION: Safe lookahead insertion to check if old databases have the new state column
+    # SCHEMATIC AUTO-MIGRATION: Safely check and add columns if they don't exist
     cursor.execute("PRAGMA table_info(orders)")
     columns = [info[1] for info in cursor.fetchall()]
-    if "Receiver_State" not in columns:
-        cursor.execute("ALTER TABLE orders ADD COLUMN Receiver_State TEXT DEFAULT 'Not Provided'")
-        
+    
+    migrations = {
+        "Receiver_State": "TEXT DEFAULT 'Not Provided'",
+        "Payment_Status": "TEXT DEFAULT 'Paid'",
+        "Marketplace_Channel": "TEXT DEFAULT 'Unknown'",
+        "Log_Month": "TEXT DEFAULT 'Unknown'",
+        "Log_Weekday": "TEXT DEFAULT 'Unknown'"
+    }
+    
+    for col_name, col_type in migrations.items():
+        if col_name not in columns:
+            cursor.execute(f"ALTER TABLE orders ADD COLUMN {col_name} {col_type}")
+            
     conn.commit()
     conn.close()
 
 def save_order_to_db(order_dict):
-    """Inserts a new parsed order row directly onto the disk storage."""
+    """Inserts an enriched order record into the database disk."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO orders (Time_Log, Customer_Name, Customer_Phone, Receiver_Name, Delivery_Address, Receiver_State, Receiver_Phone, Status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO orders (
+            Time_Log, Log_Month, Log_Weekday, Customer_Name, Customer_Phone, 
+            Receiver_Name, Delivery_Address, Receiver_State, Receiver_Phone, 
+            Payment_Status, Marketplace_Channel, Status
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-        order_dict["Time_Log"], order_dict["Customer_Name"], order_dict["Customer_Phone"],
-        order_dict["Receiver_Name"], order_dict["Delivery_Address"], order_dict["Receiver_State"], 
-        order_dict["Receiver_Phone"], order_dict["Status"]
+        order_dict["Time_Log"], order_dict["Log_Month"], order_dict["Log_Weekday"],
+        order_dict["Customer_Name"], order_dict["Customer_Phone"], order_dict["Receiver_Name"], 
+        order_dict["Delivery_Address"], order_dict["Receiver_State"], order_dict["Receiver_Phone"], 
+        order_dict["Payment_Status"], order_dict["Marketplace_Channel"], order_dict["Status"]
     ))
     conn.commit()
     conn.close()
 
 def load_orders_from_db():
-    """Loads all saved rows directly into a clean Pandas DataFrame with structural order intact."""
+    """Loads saved rows directly into a Pandas DataFrame."""
     conn = sqlite3.connect(DB_FILE)
-    # Explicit column selection to enforce consistent structural mapping
     df = pd.read_sql_query("""
-        SELECT id, Time_Log, Customer_Name, Customer_Phone, Receiver_Name, Delivery_Address, Receiver_State, Receiver_Phone, Status 
+        SELECT id, Time_Log, Log_Month, Log_Weekday, Customer_Name, Customer_Phone, 
+               Receiver_Name, Delivery_Address, Receiver_State, Receiver_Phone, 
+               Payment_Status, Marketplace_Channel
         FROM orders
     """, conn)
     conn.close()
@@ -77,25 +95,26 @@ def delete_orders_from_db(id_list):
     conn.commit()
     conn.close()
 
-# Initialize database mapping pipelines
+# Boot system database schema
 init_db()
 
 
-# --- FIXED HIGH-CONTRAST PDF GENERATOR WITH AUTO-WRAPPING ---
+# --- HIGH-CONTRAST PDF GENERATOR (DYNAMIC RESPONSIVE ADJUSTMENT) ---
 def generate_pdf(dataframe):
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=15, leftMargin=15, topMargin=30, bottomMargin=30)
+    # Expanded width strategy to accommodate advanced splitting (Left/Right margins tight at 12pt)
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=12, leftMargin=12, topMargin=30, bottomMargin=30)
     story = []
     
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle(
-        'TitleStyle', parent=styles['Heading1'], fontSize=16, leading=20, textColor=colors.HexColor("#1E3A8A"), alignment=1 
+        'TitleStyle', parent=styles['Heading1'], fontSize=15, leading=18, textColor=colors.HexColor("#1E3A8A"), alignment=1 
     )
     header_cell_style = ParagraphStyle(
-        'HeaderStyle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=colors.whitesmoke, alignment=1
+        'HeaderStyle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=7, leading=9, textColor=colors.whitesmoke, alignment=1
     )
     body_cell_style = ParagraphStyle(
-        'BodyStyle', parent=styles['Normal'], fontName='Helvetica', fontSize=7, leading=10, textColor=colors.HexColor("#1E293B"), alignment=1
+        'BodyStyle', parent=styles['Normal'], fontName='Helvetica', fontSize=6.5, leading=9, textColor=colors.HexColor("#1E293B"), alignment=1
     )
     
     story.append(Paragraph("Fabskollexionn Customer & Delivery Tracker", title_style))
@@ -111,17 +130,17 @@ def generate_pdf(dataframe):
         body_row = [Paragraph(str(val), body_cell_style) for val in row.values]
         data.append(body_row)
         
-    # Reallocated 8 columns configuration points (Total = 582 points)
-    column_widths = [55, 70, 70, 70, 112, 65, 75, 65]
+    # Reallocated 11 metrics configuration map layout points (Total = 588 points max boundary)
+    column_widths = [55, 45, 45, 55, 55, 55, 93, 50, 55, 45, 37]
     t = Table(data, colWidths=column_widths, repeatRows=1)
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#1E3A8A")),
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+        ('TOPPADDING', (0,0), (-1,-1), 5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
         ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.HexColor("#FFFFFF"), colors.HexColor("#F8FAFC")]),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E2E8F0")),
+        ('GRID', (0,0), (-1,-1), 0.4, colors.HexColor("#E2E8F0")),
     ]))
     
     story.append(t)
@@ -215,17 +234,24 @@ with tab_paste:
             parsed_data = extract_order_details(raw_pasted_text)
             
             if parsed_data["Customer_Name"] != "Not Provided" or parsed_data["Delivery_Address"] != "Not Provided":
-                timestamp_log = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                now = datetime.now()
+                timestamp_log = now.strftime("%Y-%m-%d %H:%M:%S")
+                log_month = now.strftime("%B")        # e.g., June
+                log_weekday = now.strftime("%A")      # e.g., Monday
                 
                 final_row = {
                     "Time_Log": timestamp_log,
+                    "Log_Month": log_month,
+                    "Log_Weekday": log_weekday,
                     "Customer_Name": parsed_data["Customer_Name"],
                     "Customer_Phone": parsed_data["Customer_Phone"],
                     "Receiver_Name": parsed_data["Receiver_Name"],
                     "Delivery_Address": parsed_data["Delivery_Address"],
                     "Receiver_State": parsed_data["Receiver_State"],
                     "Receiver_Phone": parsed_data["Receiver_Phone"],
-                    "Status": f"{payment_condition} ({source_channel})"
+                    "Payment_Status": payment_condition,
+                    "Marketplace_Channel": source_channel,
+                    "Status": f"{payment_condition} ({source_channel})"  # Retained for fallback backward compatibility
                 }
                 
                 save_order_to_db(final_row)
@@ -260,7 +286,7 @@ with tab_view:
     if not current_ledger_df.empty:
         st.markdown("#### 🔍 Quick Search Filter")
         search_query = st.text_input(
-            "Search by Customer Name, Receiver Name, Phone Number, State, or Address:", 
+            "Search by Customer, Receiver, Phone, State, Month, Weekday, or Channel:", 
             placeholder="Type anything to filter instantly..."
         ).strip().lower()
         
@@ -271,7 +297,11 @@ with tab_view:
                 current_ledger_df['Customer_Phone'].str.lower().str.contains(search_query, na=False) |
                 current_ledger_df['Receiver_Phone'].str.lower().str.contains(search_query, na=False) |
                 current_ledger_df['Receiver_State'].str.lower().str.contains(search_query, na=False) |
-                current_ledger_df['Delivery_Address'].str.lower().str.contains(search_query, na=False)
+                current_ledger_df['Delivery_Address'].str.lower().str.contains(search_query, na=False) |
+                current_ledger_df['Log_Month'].str.lower().str.contains(search_query, na=False) |
+                current_ledger_df['Log_Weekday'].str.lower().str.contains(search_query, na=False) |
+                current_ledger_df['Payment_Status'].str.lower().str.contains(search_query, na=False) |
+                current_ledger_df['Marketplace_Channel'].str.lower().str.contains(search_query, na=False)
             ]
             st.caption(f"Showing {len(filtered_df)} of {len(current_ledger_df)} records matching '{search_query}'")
         else:
@@ -296,7 +326,7 @@ with tab_view:
         
         st.markdown("#### 🚨 Delete Specified Data Rows")
         deletion_options = {
-            f"Row ID {row['id']} | {row['Customer_Name']} ➡️ {row['Receiver_Name']} ({row['Time_Log']})": row['id']
+            f"Row ID {row['id']} | {row['Customer_Name']} ({row['Time_Log']})": row['id']
             for _, row in filtered_df.iterrows()
         }
         
