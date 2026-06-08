@@ -445,4 +445,146 @@ elif navigation_selection == "📊 View Data & Cloud Exports":
         if sel_chan != "All":
             filtered_df = filtered_df[filtered_df['Marketplace_Channel'] == sel_chan]
         if sel_cust != "All":
-            filtered_df = filtered_df
+            filtered_df = filtered_df[filtered_df['Customer_Name'] == sel_cust]
+        if sel_phone != "All":
+            filtered_df = filtered_df[filtered_df['Customer_Phone'] == sel_phone]
+        if text_address_query:
+            filtered_df = filtered_df[filtered_df['Delivery_Address'].str.lower().str.contains(text_address_query, na=False)]
+
+        st.caption(f"Showing {len(filtered_df)} of {len(arranged_df)} records matching active criteria filters.")
+
+        # --- EXPORT ACTIONS PANEL ---
+        col_dl1, col_dl2, col_dl3 = st.columns(3)
+        export_df = filtered_df.drop(columns=["id"], errors="ignore")
+        
+        csv_bin = export_df.to_csv(index=False).encode('utf-8')
+        col_dl1.download_button("📄 Download Filtered CSV", csv_bin, "fabskollexionn_ledger.csv", "text/csv", use_container_width=True)
+        
+        xlsx_io = io.BytesIO()
+        with pd.ExcelWriter(xlsx_io, engine='openpyxl') as wr:
+            export_df.to_excel(wr, index=False, sheet_name="DeliveriesMaster")
+        xlsx_io.seek(0)
+        col_dl2.download_button("📈 Download Filtered Excel (.xlsx)", xlsx_io, "fabskollexionn_ledger.xlsx", use_container_width=True)
+        
+        pdf_io = generate_pdf(export_df)
+        col_dl3.download_button("📕 Export Filtered PDF", pdf_io, "fabskollexionn_ledger.pdf", "application/pdf", use_container_width=True)
+        
+        st.markdown("---")
+        
+        # --- SMART DELETION MANAGEMENT ---
+        st.markdown("#### 🚨 Delete Specified Data Rows")
+        deletion_options = {
+            f"Row ID {row['id']} | {row['Customer_Name']} ({row['Log_Month']}, {row['Day_of_Week']})": row['id']
+            for _, row in filtered_df.iterrows()
+        }
+        
+        if deletion_options:
+            target_selections = st.multiselect(
+                "Select specific records to remove from storage file:", 
+                options=list(deletion_options.keys())
+            )
+            
+            if st.button("🗑️ Drop Selected Rows Permanently", type="secondary"):
+                if target_selections:
+                    ids_to_delete = [deletion_options[item] for item in target_selections]
+                    delete_orders_from_db(ids_to_delete)
+                    st.toast("Selected rows dropped from database file successfully.")
+                    st.rerun()
+        else:
+            st.info("No matching rows found to delete based on your current filters.")
+        
+        st.markdown("---")
+        st.markdown("#### 👁️ Live Filtered DataFrame Matrix")
+        st.dataframe(export_df, use_container_width=True)
+        
+    else:
+        st.info("The database storage file is currently empty. Log verified orders inside the quick paste workspace.")
+
+# --- VIEW 3: CUSTOMER PATRONAGE DASHBOARD ---
+elif navigation_selection == "🏆 Patronage Dashboard":
+    st.markdown(f"### <span style='color:{accent_color}'>🏆 Fabskollexionn Customer Loyalty Insights</span>", unsafe_allow_html=True)
+    
+    dash_df = load_orders_from_db()
+    
+    if not dash_df.empty:
+        # Metrics Row
+        total_orders = len(dash_df)
+        unique_customers = dash_df['Customer_Phone'].nunique()
+        repeat_customers = sum(dash_df['Customer_Phone'].value_counts() > 1)
+        
+        col_m1, col_m2, col_m3 = st.columns(3)
+        with col_m1:
+            st.metric("📦 Total Orders Handled", total_orders)
+        with col_m2:
+            st.metric("👥 Total Unique Customers", unique_customers)
+        with col_m3:
+            st.metric("🔄 Loyal Repeat Customers", repeat_customers)
+            
+        st.markdown("---")
+        
+        # --- VISUAL ANALYTICAL DASHBOARD CHARTS ---
+        st.markdown(f"### <span style='color:{accent_color}'>📊 Sales & Operations Analytics</span>", unsafe_allow_html=True)
+        
+        # Convert log times to pandas Datetime format safely
+        date_series = pd.to_datetime(dash_df['Time_Log'], errors='coerce')
+        dash_df['Extracted_Day'] = date_series.dt.strftime('%A').fillna('Unknown')
+        
+        # Create visual layout splits
+        chart_col1, chart_col2 = st.columns(2)
+        
+        with chart_col1:
+            st.markdown("#### 📅 Day of the Week Sales Count")
+            
+            # Formulate chronological sorting index
+            day_counts = dash_df['Extracted_Day'].value_counts().reset_index()
+            day_counts.columns = ['Day of Week', 'Sales Volume']
+            
+            week_chronological_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+            day_counts['Day of Week'] = pd.Categorical(day_counts['Day of Week'], categories=week_chronological_order, ordered=True)
+            day_counts = day_counts.sort_values('Day of Week')
+            
+            st.bar_chart(data=day_counts, x='Day of Week', y='Sales Volume', color=chart_color_1, use_container_width=True)
+            
+        with chart_col2:
+            st.markdown("#### 📍 Regional Distribution Count")
+            
+            # Group by state data fields safely
+            state_counts = dash_df['Receiver_State'].value_counts().reset_index()
+            state_counts.columns = ['Receiver State', 'Orders Volume']
+            state_counts = state_counts.sort_values(by='Orders Volume', ascending=False)
+            
+            st.bar_chart(data=state_counts, x='Receiver State', y='Orders Volume', color=chart_color_2, use_container_width=True)
+            
+        st.markdown("---")
+        
+        st.markdown("#### 📈 Customer Patronage Leaderboard")
+        st.markdown("This live table ranks your customers based on their unique phone numbers.")
+        
+        leaderboard = dash_df.groupby('Customer_Phone').agg(
+            Customer_Name=('Customer_Name', 'first'),
+            Total_Patronage_Count=('id', 'count')
+        ).reset_index()
+        
+        leaderboard = leaderboard.sort_values(by='Total_Patronage_Count', ascending=False).reset_index(drop=True)
+        leaderboard = leaderboard[["Customer_Name", "Customer_Phone", "Total_Patronage_Count"]]
+        leaderboard.columns = ["👑 Customer Name Reference", "📞 Unique Phone Number", "🛍️ Times Patronized"]
+        
+        vip_customer = leaderboard.iloc[0]["👑 Customer Name Reference"]
+        vip_phone = leaderboard.iloc[0]["📞 Unique Phone Number"]
+        vip_count = leaderboard.iloc[0]["🛍️ Times Patronized"]
+        
+        # High contrast fallback colors for dynamic loyalty alert box components
+        alert_box_bg = "#1E293B" if st.session_state.theme_dark else "#E2E8F0"
+        alert_text_base = "#FFFFFF" if st.session_state.theme_dark else "#1E3A8A"
+        
+        st.markdown(f"""
+        <div style="background-color: {alert_box_bg}; border-left: 5px solid #38BDF8; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
+            <span style="color: #38BDF8; font-weight: bold;">✨ VIP Customer Alert:</span><br>
+            <span style="color: {alert_text_base};">The customer with phone number <strong>{vip_phone}</strong> ({vip_customer}) is your top patron, ordering <strong>{vip_count} times</strong>!</span>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.dataframe(leaderboard, use_container_width=True)
+        
+    else:
+        st.info("No analytics data available yet. Once you begin saving order entries in the quick paste workspace, your loyalty metrics will populate here automatically.")
