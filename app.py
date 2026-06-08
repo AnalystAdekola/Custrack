@@ -66,7 +66,6 @@ def load_orders_from_db():
     df = pd.read_sql_query("SELECT * FROM orders", conn)
     conn.close()
     
-    # Backfill legacy records if any exist without the new split columns
     if not df.empty:
         if 'Payment_Status' not in df.columns or df['Payment_Status'].isnull().all():
             df['Payment_Status'] = "Paid"
@@ -118,7 +117,6 @@ def generate_pdf(dataframe):
         body_row = [Paragraph(str(val), body_cell_style) for val in row.values]
         data.append(body_row)
         
-    # Reallocated 9 columns configuration points (Total = 582 points)
     column_widths = [55, 60, 65, 65, 65, 102, 60, 65, 45]
     t = Table(data, colWidths=column_widths, repeatRows=1)
     t.setStyle(TableStyle([
@@ -162,7 +160,8 @@ def extract_order_details(text_block):
 
 
 # --- STREAMLIT PAGE SETUP ---
-st.set_page_config(page_title="Fabskollexionn Tracker", page_icon="🛍️", layout="wide", initial_sidebar_state="collapsed")
+# Enabled sidebar visibility by default so the spreadsheet filters are obvious to the user
+st.set_page_config(page_title="Fabskollexionn Tracker", page_icon="🛍️", layout="wide", initial_sidebar_state="expanded")
 
 # --- FIXED DUAL THEME MECHANICS ---
 theme_choice = st.radio("🌓 Toggle Workspace Theme:", ["Light Mode", "Dark Mode"], horizontal=True)
@@ -192,6 +191,83 @@ st.title("🛍️ Fabskollexionn Customer & Delivery Tracker")
 st.markdown("Copy, paste, and permanently lock data rows onto local database storage.")
 st.markdown("---")
 
+
+# --- GLOBAL DATA ENGINE FETCHING (To power both Sidebar Filters and Tabs) ---
+raw_ledger_df = load_orders_from_db()
+
+if not raw_ledger_df.empty:
+    # Process backend timestamps into clean analytics elements
+    date_objects = pd.to_datetime(raw_ledger_df['Time_Log'], errors='coerce')
+    raw_ledger_df['Log_Month'] = date_objects.dt.strftime('%B').fillna('Unknown')
+    raw_ledger_df['Day_of_Week'] = date_objects.dt.strftime('%A').fillna('Unknown')
+    
+    # Generate structured base array mapping matrix
+    master_df = raw_ledger_df[[
+        'id', 'Log_Month', 'Day_of_Week', 'Customer_Name', 'Customer_Phone', 
+        'Receiver_Name', 'Delivery_Address', 'Receiver_State', 'Receiver_Phone', 
+        'Payment_Status', 'Marketplace_Channel'
+    ]]
+else:
+    master_df = pd.DataFrame()
+
+
+# --- EXCEL-STYLE SIDEBAR COLUMN FILTERS ---
+filtered_df = master_df.copy()
+
+with st.sidebar:
+    st.markdown("### 🗂️ Excel Column Filters")
+    st.markdown("Select items in any column to filter the table immediately—just like spreadsheet dropdowns.")
+    
+    if not master_df.empty:
+        # 1. Filter by Log Month
+        distinct_months = sorted(master_df['Log_Month'].unique())
+        selected_months = st.multiselect("📅 Filter by Month", options=distinct_months)
+        if selected_months:
+            filtered_df = filtered_df[filtered_df['Log_Month'].isin(selected_months)]
+            
+        # 2. Filter by Day of Week
+        distinct_days = sorted(master_df['Day_of_Week'].unique())
+        selected_days = st.multiselect("📆 Filter by Day of Week", options=distinct_days)
+        if selected_days:
+            filtered_df = filtered_df[filtered_df['Day_of_Week'].isin(selected_days)]
+            
+        # 3. Filter by Receiver State/Province
+        distinct_states = sorted(master_df['Receiver_State'].unique())
+        selected_states = st.multiselect("📍 Filter by State/Province", options=distinct_states)
+        if selected_states:
+            filtered_df = filtered_df[filtered_df['Receiver_State'].isin(selected_states)]
+            
+        # 4. Filter by Payment Status
+        distinct_payments = sorted(master_df['Payment_Status'].unique())
+        selected_payments = st.multiselect("💳 Filter by Payment Status", options=distinct_payments)
+        if selected_payments:
+            filtered_df = filtered_df[filtered_df['Payment_Status'].isin(selected_payments)]
+            
+        # 5. Filter by Marketplace Channel
+        distinct_channels = sorted(master_df['Marketplace_Channel'].unique())
+        selected_channels = st.multiselect("📱 Filter by Platform Channel", options=distinct_channels)
+        if selected_channels:
+            filtered_df = filtered_df[filtered_df['Marketplace_Channel'].isin(selected_channels)]
+            
+        # 6. Granular Text Search Box for manual overriding
+        st.markdown("---")
+        text_search = st.text_input("🔍 Keyword Search (Name/Phone/Address)", placeholder="Type custom keyword...").strip().lower()
+        if text_search:
+            filtered_df = filtered_df[
+                filtered_df['Customer_Name'].str.lower().str.contains(text_search, na=False) |
+                filtered_df['Receiver_Name'].str.lower().str.contains(text_search, na=False) |
+                filtered_df['Customer_Phone'].str.lower().str.contains(text_search, na=False) |
+                filtered_df['Receiver_Phone'].str.lower().str.contains(text_search, na=False) |
+                filtered_df['Delivery_Address'].str.lower().str.contains(text_search, na=False)
+            ]
+            
+        if st.button("🔄 Reset All Filters", use_container_width=True):
+            st.rerun()
+    else:
+        st.caption("Add data to unlock spreadsheet column filters.")
+
+
+# --- APPLICATION TABS NAVIGATION ---
 tab_paste, tab_view, tab_dash = st.tabs(["📥 Quick Paste Workspace", "📊 View Data & Cloud Exports", "🏆 Patronage Dashboard"])
 
 # --- TAB 1: PASTE WORKSPACE ---
@@ -256,90 +332,21 @@ with tab_paste:
                     f"Thank you for shopping with Fabskollexionn! 🛍️"
                 )
                 st.text_area("Copy and send directly to customer:", value=outbound_receipt, height=140)
+                st.rerun()
             else:
                 st.error("Parse Error: Could not extract details. Check text tags.")
         else:
             st.error("Text field is empty.")
 
-# --- TAB 2: DATA REGISTRY ENGINE (ADVANCED INTERACTIVE FILTERS) ---
+# --- TAB 2: DATA REGISTRY ENGINE ---
 with tab_view:
     st.markdown(f"### <span style='color:{accent_color}'>View Data & File Exporters</span>", unsafe_allow_html=True)
     
-    raw_ledger_df = load_orders_from_db()
-    
-    if not raw_ledger_df.empty:
-        # Datetime conversion pipeline
-        date_objects = pd.to_datetime(raw_ledger_df['Time_Log'], errors='coerce')
-        raw_ledger_df['Log_Month'] = date_objects.dt.strftime('%B').fillna('Unknown')
-        raw_ledger_df['Day_of_Week'] = date_objects.dt.strftime('%A').fillna('Unknown')
-        
-        # Structure arrangement layout
-        arranged_df = raw_ledger_df[[
-            'id', 'Log_Month', 'Day_of_Week', 'Customer_Name', 'Customer_Phone', 
-            'Receiver_Name', 'Delivery_Address', 'Receiver_State', 'Receiver_Phone', 
-            'Payment_Status', 'Marketplace_Channel'
-        ]]
+    if not master_df.empty:
+        st.caption(f"Showing {len(filtered_df)} of {len(master_df)} records based on active sidebar filters.")
 
-        # --- NEW STEP: INDEPENDENT COLUMN FILTER PANEL CONTAINER ---
-        with st.expander("🔍 Advanced Multi-Factor Column Filters", expanded=True):
-            f_col1, f_col2, f_col3, f_col4 = st.columns(4)
-            f_col5, f_col6, f_col7, f_col8 = st.columns(4)
-            
-            with f_col1:
-                search_name = st.text_input("👤 Name (Customer/Receiver):", placeholder="Type name...").strip().lower()
-            with f_col2:
-                search_phone = st.text_input("📞 Phone Number:", placeholder="Type phone...").strip().lower()
-            with f_col3:
-                search_address = st.text_input("📍 Delivery Address:", placeholder="Type address...").strip().lower()
-            with f_col4:
-                # Dynamic options pull directly from entries currently saved
-                state_opts = ["All States"] + sorted(list(arranged_df['Receiver_State'].unique()))
-                selected_state = st.selectbox("🗺️ Filter State/Province:", state_opts)
-                
-            with f_col5:
-                month_opts = ["All Months"] + sorted(list(arranged_df['Log_Month'].unique()))
-                selected_month = st.selectbox("📅 Filter Log Month:", month_opts)
-            with f_col6:
-                day_opts = ["All Days"] + sorted(list(arranged_df['Day_of_Week'].unique()))
-                selected_day = st.selectbox("📆 Filter Day of Week:", day_opts)
-            with f_col7:
-                pay_opts = ["All Statuses"] + sorted(list(arranged_df['Payment_Status'].unique()))
-                selected_pay = st.selectbox("💳 Filter Payment Status:", pay_opts)
-            with f_col8:
-                chan_opts = ["All Channels"] + sorted(list(arranged_df['Marketplace_Channel'].unique()))
-                selected_chan = st.selectbox("📱 Filter Origin Channel:", chan_opts)
-
-        # --- EVALUATE MULTI-FACTOR FILTER MATRIX ---
-        filtered_df = arranged_df.copy()
-        
-        if search_name:
-            filtered_df = filtered_df[
-                filtered_df['Customer_Name'].str.lower().str.contains(search_name, na=False) |
-                filtered_df['Receiver_Name'].str.lower().str.contains(search_name, na=False)
-            ]
-        if search_phone:
-            filtered_df = filtered_df[
-                filtered_df['Customer_Phone'].str.lower().str.contains(search_phone, na=False) |
-                filtered_df['Receiver_Phone'].str.lower().str.contains(search_phone, na=False)
-            ]
-        if search_address:
-            filtered_df = filtered_df[filtered_df['Delivery_Address'].str.lower().str.contains(search_address, na=False)]
-            
-        if selected_state != "All States":
-            filtered_df = filtered_df[filtered_df['Receiver_State'] == selected_state]
-        if selected_month != "All Months":
-            filtered_df = filtered_df[filtered_df['Log_Month'] == selected_month]
-        if selected_day != "All Days":
-            filtered_df = filtered_df[filtered_df['Day_of_Week'] == selected_day]
-        if selected_pay != "All Statuses":
-            filtered_df = filtered_df[filtered_df['Payment_Status'] == selected_pay]
-        if selected_chan != "All Channels":
-            filtered_df = filtered_df[filtered_df['Marketplace_Channel'] == selected_chan]
-
-        st.caption(f"Showing {len(filtered_df)} of {len(arranged_df)} records matching chosen constraints.")
-
-        # --- EXPORT INTERFACES ---
         col_dl1, col_dl2, col_dl3 = st.columns(3)
+        # Drop the SQLite hidden database row reference for clean user downloads
         export_df = filtered_df.drop(columns=["id"], errors="ignore")
         
         csv_bin = export_df.to_csv(index=False).encode('utf-8')
@@ -356,7 +363,6 @@ with tab_view:
         
         st.markdown("---")
         
-        # --- SMART DELETION DROPDOWN MAPS TO COMBINED FILTERED VIEWS ---
         st.markdown("#### 🚨 Delete Specified Data Rows")
         deletion_options = {
             f"Row ID {row['id']} | {row['Customer_Name']} ({row['Log_Month']}, {row['Day_of_Week']})": row['id']
@@ -376,7 +382,7 @@ with tab_view:
                     st.toast("Selected rows dropped from database file successfully.")
                     st.rerun()
         else:
-            st.info("No matching rows found to delete based on your current filter criteria.")
+            st.info("No rows match your current column filters to display for deletion.")
         
         st.markdown("---")
         st.markdown("#### 👁️ Live Filtered DataFrame Matrix")
@@ -389,12 +395,11 @@ with tab_view:
 with tab_dash:
     st.markdown(f"### <span style='color:{accent_color}'>🏆 Fabskollexionn Customer Loyalty Insights</span>", unsafe_allow_html=True)
     
-    dash_df = load_orders_from_db()
-    
-    if not dash_df.empty:
-        total_orders = len(dash_df)
-        unique_customers = dash_df['Customer_Phone'].nunique()
-        repeat_customers = sum(dash_df['Customer_Phone'].value_counts() > 1)
+    # Dashboards read from the filtered view so analytics adjust as you filter by state, month, etc.!
+    if not filtered_df.empty:
+        total_orders = len(filtered_df)
+        unique_customers = filtered_df['Customer_Phone'].nunique()
+        repeat_customers = sum(filtered_df['Customer_Phone'].value_counts() > 1)
         
         col_m1, col_m2, col_m3 = st.columns(3)
         with col_m1:
@@ -409,7 +414,7 @@ with tab_dash:
         st.markdown("#### 📈 Customer Patronage Leaderboard")
         st.markdown("This live table ranks your customers based on their unique phone numbers.")
         
-        leaderboard = dash_df.groupby('Customer_Phone').agg(
+        leaderboard = filtered_df.groupby('Customer_Phone').agg(
             Customer_Name=('Customer_Name', 'first'),
             Total_Patronage_Count=('id', 'count')
         ).reset_index()
@@ -432,4 +437,4 @@ with tab_dash:
         st.dataframe(leaderboard, use_container_width=True)
         
     else:
-        st.info("No analytics data available yet. Once you begin saving order entries in Tab 1, your loyalty metrics will populate here automatically.")
+        st.info("No data entries match your current column criteria to generate insights.")
