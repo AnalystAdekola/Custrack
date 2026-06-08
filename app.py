@@ -261,57 +261,85 @@ with tab_paste:
         else:
             st.error("Text field is empty.")
 
-# --- TAB 2: DATA REGISTRY ENGINE ---
+# --- TAB 2: DATA REGISTRY ENGINE (ADVANCED INTERACTIVE FILTERS) ---
 with tab_view:
     st.markdown(f"### <span style='color:{accent_color}'>View Data & File Exporters</span>", unsafe_allow_html=True)
     
     raw_ledger_df = load_orders_from_db()
     
     if not raw_ledger_df.empty:
-        # --- DATETIME TRANSFORMATION ENGINE ---
-        # Parse the raw backend string into true date objects
+        # Datetime conversion pipeline
         date_objects = pd.to_datetime(raw_ledger_df['Time_Log'], errors='coerce')
+        raw_ledger_df['Log_Month'] = date_objects.dt.strftime('%B').fillna('Unknown')
+        raw_ledger_df['Day_of_Week'] = date_objects.dt.strftime('%A').fillna('Unknown')
         
-        # Split into explicit, readable columns
-        raw_ledger_df['Log_Month'] = date_objects.dt.strftime('%B')
-        raw_ledger_df['Day_of_Week'] = date_objects.dt.strftime('%A')
-        
-        # Fill placeholders if anything falls through empty
-        raw_ledger_df['Log_Month'] = raw_ledger_df['Log_Month'].fillna('Unknown')
-        raw_ledger_df['Day_of_Week'] = raw_ledger_df['Day_of_Week'].fillna('Unknown')
-        
-        # Structural Reordering Matrix: Completely isolates and drops hidden tracking IDs
+        # Structure arrangement layout
         arranged_df = raw_ledger_df[[
             'id', 'Log_Month', 'Day_of_Week', 'Customer_Name', 'Customer_Phone', 
             'Receiver_Name', 'Delivery_Address', 'Receiver_State', 'Receiver_Phone', 
             'Payment_Status', 'Marketplace_Channel'
         ]]
 
-        st.markdown("#### 🔍 Quick Search Filter")
-        search_query = st.text_input(
-            "Search by Name, Phone, State, Channel, Day, or Address:", 
-            placeholder="Type anything to filter instantly..."
-        ).strip().lower()
-        
-        if search_query:
-            filtered_df = arranged_df[
-                arranged_df['Customer_Name'].str.lower().str.contains(search_query, na=False) |
-                arranged_df['Receiver_Name'].str.lower().str.contains(search_query, na=False) |
-                arranged_df['Customer_Phone'].str.lower().str.contains(search_query, na=False) |
-                arranged_df['Receiver_Phone'].str.lower().str.contains(search_query, na=False) |
-                arranged_df['Receiver_State'].str.lower().str.contains(search_query, na=False) |
-                arranged_df['Delivery_Address'].str.lower().str.contains(search_query, na=False) |
-                arranged_df['Payment_Status'].str.lower().str.contains(search_query, na=False) |
-                arranged_df['Marketplace_Channel'].str.lower().str.contains(search_query, na=False) |
-                arranged_df['Log_Month'].str.lower().str.contains(search_query, na=False) |
-                arranged_df['Day_of_Week'].str.lower().str.contains(search_query, na=False)
-            ]
-            st.caption(f"Showing {len(filtered_df)} of {len(arranged_df)} records matching '{search_query}'")
-        else:
-            filtered_df = arranged_df.copy()
+        # --- NEW STEP: INDEPENDENT COLUMN FILTER PANEL CONTAINER ---
+        with st.expander("🔍 Advanced Multi-Factor Column Filters", expanded=True):
+            f_col1, f_col2, f_col3, f_col4 = st.columns(4)
+            f_col5, f_col6, f_col7, f_col8 = st.columns(4)
+            
+            with f_col1:
+                search_name = st.text_input("👤 Name (Customer/Receiver):", placeholder="Type name...").strip().lower()
+            with f_col2:
+                search_phone = st.text_input("📞 Phone Number:", placeholder="Type phone...").strip().lower()
+            with f_col3:
+                search_address = st.text_input("📍 Delivery Address:", placeholder="Type address...").strip().lower()
+            with f_col4:
+                # Dynamic options pull directly from entries currently saved
+                state_opts = ["All States"] + sorted(list(arranged_df['Receiver_State'].unique()))
+                selected_state = st.selectbox("🗺️ Filter State/Province:", state_opts)
+                
+            with f_col5:
+                month_opts = ["All Months"] + sorted(list(arranged_df['Log_Month'].unique()))
+                selected_month = st.selectbox("📅 Filter Log Month:", month_opts)
+            with f_col6:
+                day_opts = ["All Days"] + sorted(list(arranged_df['Day_of_Week'].unique()))
+                selected_day = st.selectbox("📆 Filter Day of Week:", day_opts)
+            with f_col7:
+                pay_opts = ["All Statuses"] + sorted(list(arranged_df['Payment_Status'].unique()))
+                selected_pay = st.selectbox("💳 Filter Payment Status:", pay_opts)
+            with f_col8:
+                chan_opts = ["All Channels"] + sorted(list(arranged_df['Marketplace_Channel'].unique()))
+                selected_chan = st.selectbox("📱 Filter Origin Channel:", chan_opts)
 
+        # --- EVALUATE MULTI-FACTOR FILTER MATRIX ---
+        filtered_df = arranged_df.copy()
+        
+        if search_name:
+            filtered_df = filtered_df[
+                filtered_df['Customer_Name'].str.lower().str.contains(search_name, na=False) |
+                filtered_df['Receiver_Name'].str.lower().str.contains(search_name, na=False)
+            ]
+        if search_phone:
+            filtered_df = filtered_df[
+                filtered_df['Customer_Phone'].str.lower().str.contains(search_phone, na=False) |
+                filtered_df['Receiver_Phone'].str.lower().str.contains(search_phone, na=False)
+            ]
+        if search_address:
+            filtered_df = filtered_df[filtered_df['Delivery_Address'].str.lower().str.contains(search_address, na=False)]
+            
+        if selected_state != "All States":
+            filtered_df = filtered_df[filtered_df['Receiver_State'] == selected_state]
+        if selected_month != "All Months":
+            filtered_df = filtered_df[filtered_df['Log_Month'] == selected_month]
+        if selected_day != "All Days":
+            filtered_df = filtered_df[filtered_df['Day_of_Week'] == selected_day]
+        if selected_pay != "All Statuses":
+            filtered_df = filtered_df[filtered_df['Payment_Status'] == selected_pay]
+        if selected_chan != "All Channels":
+            filtered_df = filtered_df[filtered_df['Marketplace_Channel'] == selected_chan]
+
+        st.caption(f"Showing {len(filtered_df)} of {len(arranged_df)} records matching chosen constraints.")
+
+        # --- EXPORT INTERFACES ---
         col_dl1, col_dl2, col_dl3 = st.columns(3)
-        # Clean export view: strips the database primary key out entirely for file downloads
         export_df = filtered_df.drop(columns=["id"], errors="ignore")
         
         csv_bin = export_df.to_csv(index=False).encode('utf-8')
@@ -328,6 +356,7 @@ with tab_view:
         
         st.markdown("---")
         
+        # --- SMART DELETION DROPDOWN MAPS TO COMBINED FILTERED VIEWS ---
         st.markdown("#### 🚨 Delete Specified Data Rows")
         deletion_options = {
             f"Row ID {row['id']} | {row['Customer_Name']} ({row['Log_Month']}, {row['Day_of_Week']})": row['id']
@@ -347,7 +376,7 @@ with tab_view:
                     st.toast("Selected rows dropped from database file successfully.")
                     st.rerun()
         else:
-            st.info("No matching rows found to delete based on your current search query.")
+            st.info("No matching rows found to delete based on your current filter criteria.")
         
         st.markdown("---")
         st.markdown("#### 👁️ Live Filtered DataFrame Matrix")
