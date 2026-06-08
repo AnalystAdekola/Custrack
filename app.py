@@ -48,7 +48,7 @@ def init_db():
 def save_order_to_db(order_dict):
     """Inserts a new parsed order row directly onto the disk storage."""
     conn = sqlite3.connect(DB_FILE)
-    cursor = cursor = conn.cursor()
+    cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO orders (Time_Log, Customer_Name, Customer_Phone, Receiver_Name, Delivery_Address, Receiver_State, Receiver_Phone, Status, Payment_Status, Marketplace_Channel)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -219,7 +219,7 @@ if st.session_state.theme_dark:
             color: #0F172A !important;
             font-weight: 500 !important;
         }}
-        /* 2. COMPREHENSIVE BUTTONS FIX: Starks solid black font directly on all action and download interfaces */
+        /* 2. DARK MODE BUTTONS: Solid black font directly on action and download interfaces */
         div.stButton button, 
         div.stDownloadButton button,
         div.stButton button p,
@@ -269,15 +269,21 @@ else:
             color: {text_color} !important;
             border: 1px solid {border_color} !important;
         }}
-        /* Normal button structure definitions for corporate light theme consistency */
-        div.stButton button, div.stDownloadButton button {{
+        /* LIGHT MODE BUTTONS FIXED: Force white text inside buttons for high contrast */
+        div.stButton button, 
+        div.stDownloadButton button,
+        div.stButton button p,
+        div.stDownloadButton button p {{
             background-color: #1E3A8A !important;
             color: #FFFFFF !important;
             border: 1px solid #1E3A8A !important;
+            font-weight: bold !important;
         }}
-        div.stButton button:hover, div.stDownloadButton button:hover {{
+        div.stButton button:hover, div.stDownloadButton button:hover,
+        div.stButton button:hover p, div.stDownloadButton button:hover p {{
             background-color: #1D4ED8 !important;
             color: #FFFFFF !important;
+            border: 1px solid #1D4ED8 !important;
         }}
         .stTabs [data-baseweb="tab"] {{
             color: #475569 !important;
