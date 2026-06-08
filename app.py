@@ -181,7 +181,7 @@ with head_toggle_col:
 with head_title_col:
     st.title("🛍️ Fabskollexionn Customer & Delivery Tracker")
 
-# --- HIGH-CONTRAST GLOBAL PROFESSIONAL CSS OVERRIDES ---
+# --- HIGH-CONTRAST GLOBAL CSS ENGINE WITH FIX FOR INPUT BOXES ---
 if st.session_state.theme_dark:
     text_color = "#F8FAFC"
     accent_color = "#38BDF8"
@@ -190,31 +190,17 @@ if st.session_state.theme_dark:
     
     st.markdown(f"""
         <style>
-        /* Base application background workspace */
+        /* Base page canvas background setup */
         html, body, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {{
             background-color: #0F172A !important;
             color: {text_color} !important;
             font-family: 'Inter', -apple-system, sans-serif !important;
         }}
-        /* Force color visibility on all generic typographic elements */
+        /* Structural lettering headers and title tags */
         h1, h2, h3, h4, h5, h6, p, label, span, small, strong, [data-testid="stMarkdownContainer"] p {{
             color: {text_color} !important;
         }}
-        /* Fix hidden select boxes text, selected options, and input values */
-        .stSelectbox div[data-baseweb="select"], 
-        .stSelectbox data-baseweb="select" span,
-        .stTextInput input, 
-        .stTextArea textarea,
-        div[role="listbox"] ul li,
-        div[data-baseweb="popover"] {{
-            background-color: {card_bg} !important;
-            color: #FFFFFF !important;
-        }}
-        /* Ensure dropdown label lists and text arrays inside input fields stay legible */
-        input, textarea, select, [data-baseweb="select"] * {{
-            color: #FFFFFF !important;
-        }}
-        /* Make sure tab selectors are stark and clearly readable */
+        /* Tab layout adjustments */
         .stTabs [data-baseweb="tab"] {{
             color: #94A3B8 !important;
         }}
@@ -222,7 +208,18 @@ if st.session_state.theme_dark:
             color: {accent_color} !important;
             font-weight: 600 !important;
         }}
-        /* Fix native interactive dataframes from hiding metrics under black fonts */
+        /* CRITICAL FIXED RULE: Forces dark legible text specifically inside white/light input fields */
+        .stSelectbox div[data-baseweb="select"], 
+        .stSelectbox div[data-baseweb="select"] *,
+        .stTextInput input, 
+        .stTextArea textarea,
+        div[role="listbox"] ul li,
+        div[data-baseweb="popover"] *,
+        input, textarea, select {{
+            color: #0F172A !important;
+            font-weight: 500 !important;
+        }}
+        /* Keep database dataframe text items contrasting against their row arrays */
         div[data-testid="stDataFrame"] *, div[data-testid="data-grid"] * {{
             color: #FFFFFF !important;
         }}
