@@ -15,7 +15,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 DB_FILE = "fabskollexionn.db"
 
 def init_db():
-    """Initializes the local database file and creates the table if it doesn't exist."""
+    """Initializes the local database file and creates/updates tables as required."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("""
@@ -30,6 +30,13 @@ def init_db():
             Status TEXT
         )
     """)
+    
+    # DYNAMIC DATA MIGRATION: Safe lookahead insertion to check if old databases have the new state column
+    cursor.execute("PRAGMA table_info(orders)")
+    columns = [info[1] for info in cursor.fetchall()]
+    if "Receiver_State" not in columns:
+        cursor.execute("ALTER TABLE orders ADD COLUMN Receiver_State TEXT DEFAULT 'Not Provided'")
+        
     conn.commit()
     conn.close()
 
@@ -38,19 +45,24 @@ def save_order_to_db(order_dict):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO orders (Time_Log, Customer_Name, Customer_Phone, Receiver_Name, Delivery_Address, Receiver_Phone, Status)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO orders (Time_Log, Customer_Name, Customer_Phone, Receiver_Name, Delivery_Address, Receiver_State, Receiver_Phone, Status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         order_dict["Time_Log"], order_dict["Customer_Name"], order_dict["Customer_Phone"],
-        order_dict["Receiver_Name"], order_dict["Delivery_Address"], order_dict["Receiver_Phone"], order_dict["Status"]
+        order_dict["Receiver_Name"], order_dict["Delivery_Address"], order_dict["Receiver_State"], 
+        order_dict["Receiver_Phone"], order_dict["Status"]
     ))
     conn.commit()
     conn.close()
 
 def load_orders_from_db():
-    """Loads all saved rows directly into a clean Pandas DataFrame."""
+    """Loads all saved rows directly into a clean Pandas DataFrame with structural order intact."""
     conn = sqlite3.connect(DB_FILE)
-    df = pd.read_sql_query("SELECT * FROM orders", conn)
+    # Explicit column selection to enforce consistent structural mapping
+    df = pd.read_sql_query("""
+        SELECT id, Time_Log, Customer_Name, Customer_Phone, Receiver_Name, Delivery_Address, Receiver_State, Receiver_Phone, Status 
+        FROM orders
+    """, conn)
     conn.close()
     return df
 
@@ -65,14 +77,14 @@ def delete_orders_from_db(id_list):
     conn.commit()
     conn.close()
 
-# Initialize the database file upon bootup
+# Initialize database mapping pipelines
 init_db()
 
 
 # --- FIXED HIGH-CONTRAST PDF GENERATOR WITH AUTO-WRAPPING ---
 def generate_pdf(dataframe):
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=20, leftMargin=20, topMargin=30, bottomMargin=30)
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=15, leftMargin=15, topMargin=30, bottomMargin=30)
     story = []
     
     styles = getSampleStyleSheet()
@@ -80,16 +92,15 @@ def generate_pdf(dataframe):
         'TitleStyle', parent=styles['Heading1'], fontSize=16, leading=20, textColor=colors.HexColor("#1E3A8A"), alignment=1 
     )
     header_cell_style = ParagraphStyle(
-        'HeaderStyle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=11, textColor=colors.whitesmoke, alignment=1
+        'HeaderStyle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=colors.whitesmoke, alignment=1
     )
     body_cell_style = ParagraphStyle(
-        'BodyStyle', parent=styles['Normal'], fontName='Helvetica', fontSize=8, leading=11, textColor=colors.HexColor("#1E293B"), alignment=1
+        'BodyStyle', parent=styles['Normal'], fontName='Helvetica', fontSize=7, leading=10, textColor=colors.HexColor("#1E293B"), alignment=1
     )
     
     story.append(Paragraph("Fabskollexionn Customer & Delivery Tracker", title_style))
     story.append(Spacer(1, 15))
     
-    # Exclude the internal SQLite 'id' column from the printed PDF report
     pdf_df = dataframe.drop(columns=["id"], errors="ignore")
     
     columns = list(pdf_df.columns)
@@ -100,14 +111,15 @@ def generate_pdf(dataframe):
         body_row = [Paragraph(str(val), body_cell_style) for val in row.values]
         data.append(body_row)
         
-    column_widths = [65, 80, 80, 80, 152, 65, 50]
+    # Reallocated 8 columns configuration points (Total = 582 points)
+    column_widths = [55, 70, 70, 70, 112, 65, 75, 65]
     t = Table(data, colWidths=column_widths, repeatRows=1)
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#1E3A8A")),
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('TOPPADDING', (0,0), (-1,-1), 8),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
         ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.HexColor("#FFFFFF"), colors.HexColor("#F8FAFC")]),
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E2E8F0")),
     ]))
@@ -124,7 +136,8 @@ def extract_order_details(text_block):
         "Customer_Name": r"Customer\s*Name:\s*(.*)",
         "Customer_Phone": r"Customer\s*Phone\s*(?:No|Number)?:\s*(.*)",
         "Receiver_Name": r"Receiver\s*Name:\s*(.*)",
-        "Delivery_Address": r"(?:Address|Delivery\s*Address):\s*(.*)",
+        "Delivery_Address": r"(?:Receiver\s*)?Address:\s*(.*)",
+        "Receiver_State": r"Receiver\s*State\s*/\s*Province:\s*(.*)",
         "Receiver_Phone": r"Receiver\s*Phone\s*(?:No|Number)?:\s*(.*)"
     }
     
@@ -172,10 +185,9 @@ st.title("🛍️ Fabskollexionn Customer & Delivery Tracker")
 st.markdown("Copy, paste, and permanently lock data rows onto local database storage.")
 st.markdown("---")
 
-# Navigation Tabs Framework with Added Analytics Tab
 tab_paste, tab_view, tab_dash = st.tabs(["📥 Quick Paste Workspace", "📊 View Data & Cloud Exports", "🏆 Patronage Dashboard"])
 
-# --- TAB 1: PASTE WORKSPACE (BACKEND WRITING) ---
+# --- TAB 1: PASTE WORKSPACE ---
 with tab_paste:
     st.markdown(f"### <span style='color:{accent_color}'>Paste Raw Customer Dispatch Block</span>", unsafe_allow_html=True)
     
@@ -183,11 +195,12 @@ with tab_paste:
         "Customer Name: Adefarasin John\n"
         "Customer Phone No: 09071234567\n"
         "Receiver Name: Pelumi Odulaja\n"
-        "Address: 10 Surulere, Lagos State\n"
+        "Receiver Address: 10 Surulere\n"
+        "Receiver State/Province: Lagos State\n"
         "Receiver Phone No: 08081234567"
     )
     
-    raw_pasted_text = st.text_area("Drop plain text string block here:", height=200, placeholder=placeholder_text)
+    raw_pasted_text = st.text_area("Drop plain text string block here:", height=220, placeholder=placeholder_text)
     
     col_opt1, col_opt2 = st.columns(2)
     with col_opt1:
@@ -210,6 +223,7 @@ with tab_paste:
                     "Customer_Phone": parsed_data["Customer_Phone"],
                     "Receiver_Name": parsed_data["Receiver_Name"],
                     "Delivery_Address": parsed_data["Delivery_Address"],
+                    "Receiver_State": parsed_data["Receiver_State"],
                     "Receiver_Phone": parsed_data["Receiver_Phone"],
                     "Status": f"{payment_condition} ({source_channel})"
                 }
@@ -227,17 +241,17 @@ with tab_paste:
                     f"Hello {final_row['Customer_Name']},\n\n"
                     f"We've successfully logged your order delivery details! ✨\n\n"
                     f"📦 Dispatch To: {final_row['Receiver_Name']}\n"
-                    f"📍 Target Address: {final_row['Delivery_Address']}\n"
+                    f"📍 Target Address: {final_row['Delivery_Address']}, {final_row['Receiver_State']}\n"
                     f"📞 Delivery Hotline: {final_row['Receiver_Phone']}\n\n"
                     f"Thank you for shopping with Fabskollexionn! 🛍️"
                 )
-                st.text_area("Copy and send directly to customer:", value=outbound_receipt, height=130)
+                st.text_area("Copy and send directly to customer:", value=outbound_receipt, height=140)
             else:
                 st.error("Parse Error: Could not extract details. Check text tags.")
         else:
             st.error("Text field is empty.")
 
-# --- TAB 2: DATA REGISTRY ENGINE (WITH DYNAMIC FILTERING & DELETION) ---
+# --- TAB 2: DATA REGISTRY ENGINE ---
 with tab_view:
     st.markdown(f"### <span style='color:{accent_color}'>View Data & File Exporters</span>", unsafe_allow_html=True)
     
@@ -246,7 +260,7 @@ with tab_view:
     if not current_ledger_df.empty:
         st.markdown("#### 🔍 Quick Search Filter")
         search_query = st.text_input(
-            "Search by Customer Name, Receiver Name, Phone Number, or Address:", 
+            "Search by Customer Name, Receiver Name, Phone Number, State, or Address:", 
             placeholder="Type anything to filter instantly..."
         ).strip().lower()
         
@@ -256,6 +270,7 @@ with tab_view:
                 current_ledger_df['Receiver_Name'].str.lower().str.contains(search_query, na=False) |
                 current_ledger_df['Customer_Phone'].str.lower().str.contains(search_query, na=False) |
                 current_ledger_df['Receiver_Phone'].str.lower().str.contains(search_query, na=False) |
+                current_ledger_df['Receiver_State'].str.lower().str.contains(search_query, na=False) |
                 current_ledger_df['Delivery_Address'].str.lower().str.contains(search_query, na=False)
             ]
             st.caption(f"Showing {len(filtered_df)} of {len(current_ledger_df)} records matching '{search_query}'")
@@ -315,8 +330,6 @@ with tab_dash:
     
     if not dash_df.empty:
         total_orders = len(dash_df)
-        
-        # FIX: Using phone numbers as the source of truth for unique and repeat customer logic
         unique_customers = dash_df['Customer_Phone'].nunique()
         repeat_customers = sum(dash_df['Customer_Phone'].value_counts() > 1)
         
@@ -333,15 +346,12 @@ with tab_dash:
         st.markdown("#### 📈 Customer Patronage Leaderboard")
         st.markdown("This live table ranks your customers based on their unique phone numbers.")
         
-        # Grouping by phone number ensures accuracy, while 'first' grabs the most recently logged name variation
         leaderboard = dash_df.groupby('Customer_Phone').agg(
             Customer_Name=('Customer_Name', 'first'),
             Total_Patronage_Count=('id', 'count')
         ).reset_index()
         
         leaderboard = leaderboard.sort_values(by='Total_Patronage_Count', ascending=False).reset_index(drop=True)
-        
-        # Rearrange columns for display: Name first, then Phone, then Count
         leaderboard = leaderboard[["Customer_Name", "Customer_Phone", "Total_Patronage_Count"]]
         leaderboard.columns = ["👑 Customer Name Reference", "📞 Unique Phone Number", "🛍️ Times Patronized"]
         
