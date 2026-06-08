@@ -162,9 +162,18 @@ def extract_order_details(text_block):
 # --- STREAMLIT PAGE SETUP ---
 st.set_page_config(page_title="Fabskollexionn Tracker", page_icon="🛍️", layout="wide", initial_sidebar_state="collapsed")
 
-# --- FIXED DUAL THEME MECHANICS ---
-theme_choice = st.radio("🌓 Toggle Workspace Theme:", ["Light Mode", "Dark Mode"], horizontal=True)
+# --- TOP HEADER ROW: TITLE & FLOATING TOP-RIGHT THEME TOGGLE ---
+header_left, header_right = st.columns([5, 1])
 
+with header_left:
+    st.title("🛍️ Fabskollexionn Customer & Delivery Tracker")
+    st.markdown("Copy, paste, and permanently lock data rows onto local database storage.")
+
+with header_right:
+    st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
+    theme_choice = st.selectbox("🌓 Theme", ["Light Mode", "Dark Mode"], label_visibility="collapsed")
+
+# --- FIXED DUAL THEME MECHANICS ---
 if theme_choice == "Dark Mode":
     text_color = "#FFFFFF"
     accent_color = "#38BDF8"
@@ -175,6 +184,7 @@ if theme_choice == "Dark Mode":
         textarea {{ background-color: #1E293B !important; color: #FFFFFF !important; border: 1px solid #475569 !important; font-size: 16px !important; }}
         .stTabs [data-baseweb="tab"] {{ color: #94A3B8 !important; }}
         .stTabs [aria-selected="true"] {{ color: {accent_color} !important; font-weight: bold !important; }}
+        div[data-testid="stSelectbox"] {{ background-color: #1E293B !important; border-radius: 4px; }}
         </style>
     """, unsafe_allow_html=True)
 else:
@@ -186,8 +196,6 @@ else:
         </style>
     """, unsafe_allow_html=True)
 
-st.title("🛍️ Fabskollexionn Customer & Delivery Tracker")
-st.markdown("Copy, paste, and permanently lock data rows onto local database storage.")
 st.markdown("---")
 
 tab_paste, tab_view, tab_dash = st.tabs(["📥 Quick Paste Workspace", "📊 View Data & Cloud Exports", "🏆 Patronage Dashboard"])
@@ -281,7 +289,6 @@ with tab_view:
         # --- EXCEL INTERACTIVE FILTER ROW ---
         st.markdown("#### 📑 Excel Column-Level Filter Dropdowns")
         
-        # We split the workspace into a neat grid row to present options cleanly across devices
         f_col1, f_col2, f_col3, f_col4 = st.columns(4)
         f_col5, f_col6, f_col7, f_col8 = st.columns(4)
         
@@ -307,7 +314,6 @@ with tab_view:
             phone_list = ["All"] + sorted(arranged_df['Customer_Phone'].unique().tolist())
             sel_phone = st.selectbox("📞 Filter Customer Phone", phone_list)
         with f_col8:
-            # Quick text query bar to catch custom long-tail physical delivery addresses
             text_address_query = st.text_input("🏠 Search Street Address", placeholder="Type keywords...").strip().lower()
 
         # --- CASCADE FILTERING CALCULATOR ---
