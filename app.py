@@ -15,11 +15,9 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 DB_FILE = "fabskollexionn.db"
 
 def init_db():
-    """Initializes the database file and dynamically updates schema variations safely."""
+    """Initializes the local database file and handles structural updates seamlessly."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    
-    # Core Table Setup
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,55 +31,48 @@ def init_db():
         )
     """)
     
-    # SCHEMATIC AUTO-MIGRATION: Safely check and add columns if they don't exist
+    # DYNAMIC DATA MIGRATION: Safe lookahead to add missing columns to existing databases
     cursor.execute("PRAGMA table_info(orders)")
     columns = [info[1] for info in cursor.fetchall()]
     
-    migrations = {
-        "Receiver_State": "TEXT DEFAULT 'Not Provided'",
-        "Payment_Status": "TEXT DEFAULT 'Paid'",
-        "Marketplace_Channel": "TEXT DEFAULT 'Unknown'",
-        "Log_Month": "TEXT DEFAULT 'Unknown'",
-        "Log_Weekday": "TEXT DEFAULT 'Unknown'"
-    }
-    
-    for col_name, col_type in migrations.items():
-        if col_name not in columns:
-            cursor.execute(f"ALTER TABLE orders ADD COLUMN {col_name} {col_type}")
-            
+    if "Receiver_State" not in columns:
+        cursor.execute("ALTER TABLE orders ADD COLUMN Receiver_State TEXT DEFAULT 'Not Provided'")
+    if "Payment_Status" not in columns:
+        cursor.execute("ALTER TABLE orders ADD COLUMN Payment_Status TEXT DEFAULT 'Paid'")
+    if "Marketplace_Channel" not in columns:
+        cursor.execute("ALTER TABLE orders ADD COLUMN Marketplace_Channel TEXT DEFAULT 'WhatsApp Business'")
+        
     conn.commit()
     conn.close()
 
 def save_order_to_db(order_dict):
-    """Inserts an enriched order record into the database disk."""
+    """Inserts a new parsed order row directly onto the disk storage."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO orders (
-            Time_Log, Log_Month, Log_Weekday, Customer_Name, Customer_Phone, 
-            Receiver_Name, Delivery_Address, Receiver_State, Receiver_Phone, 
-            Payment_Status, Marketplace_Channel, Status
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO orders (Time_Log, Customer_Name, Customer_Phone, Receiver_Name, Delivery_Address, Receiver_State, Receiver_Phone, Status, Payment_Status, Marketplace_Channel)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-        order_dict["Time_Log"], order_dict["Log_Month"], order_dict["Log_Weekday"],
-        order_dict["Customer_Name"], order_dict["Customer_Phone"], order_dict["Receiver_Name"], 
-        order_dict["Delivery_Address"], order_dict["Receiver_State"], order_dict["Receiver_Phone"], 
-        order_dict["Payment_Status"], order_dict["Marketplace_Channel"], order_dict["Status"]
+        order_dict["Time_Log"], order_dict["Customer_Name"], order_dict["Customer_Phone"],
+        order_dict["Receiver_Name"], order_dict["Delivery_Address"], order_dict["Receiver_State"], 
+        order_dict["Receiver_Phone"], order_dict["Status"], order_dict["Payment_Status"], order_dict["Marketplace_Channel"]
     ))
     conn.commit()
     conn.close()
 
 def load_orders_from_db():
-    """Loads saved rows directly into a Pandas DataFrame."""
+    """Loads saved rows and handles legacy rows gracefully if they lack split statuses."""
     conn = sqlite3.connect(DB_FILE)
-    df = pd.read_sql_query("""
-        SELECT id, Time_Log, Log_Month, Log_Weekday, Customer_Name, Customer_Phone, 
-               Receiver_Name, Delivery_Address, Receiver_State, Receiver_Phone, 
-               Payment_Status, Marketplace_Channel
-        FROM orders
-    """, conn)
+    df = pd.read_sql_query("SELECT * FROM orders", conn)
     conn.close()
+    
+    # Backfill legacy records if any exist without the new split columns
+    if not df.empty:
+        if 'Payment_Status' not in df.columns or df['Payment_Status'].isnull().all():
+            df['Payment_Status'] = "Paid"
+        if 'Marketplace_Channel' not in df.columns or df['Marketplace_Channel'].isnull().all():
+            df['Marketplace_Channel'] = "WhatsApp Business"
+            
     return df
 
 def delete_orders_from_db(id_list):
@@ -95,52 +86,49 @@ def delete_orders_from_db(id_list):
     conn.commit()
     conn.close()
 
-# Boot system database schema
+# Initialize database components
 init_db()
 
 
-# --- HIGH-CONTRAST PDF GENERATOR (DYNAMIC RESPONSIVE ADJUSTMENT) ---
+# --- FIXED HIGH-CONTRAST PDF GENERATOR WITH AUTO-WRAPPING ---
 def generate_pdf(dataframe):
     buffer = io.BytesIO()
-    # Expanded width strategy to accommodate advanced splitting (Left/Right margins tight at 12pt)
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=12, leftMargin=12, topMargin=30, bottomMargin=30)
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=15, leftMargin=15, topMargin=30, bottomMargin=30)
     story = []
     
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle(
-        'TitleStyle', parent=styles['Heading1'], fontSize=15, leading=18, textColor=colors.HexColor("#1E3A8A"), alignment=1 
+        'TitleStyle', parent=styles['Heading1'], fontSize=16, leading=20, textColor=colors.HexColor("#1E3A8A"), alignment=1 
     )
     header_cell_style = ParagraphStyle(
-        'HeaderStyle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=7, leading=9, textColor=colors.whitesmoke, alignment=1
+        'HeaderStyle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=colors.whitesmoke, alignment=1
     )
     body_cell_style = ParagraphStyle(
-        'BodyStyle', parent=styles['Normal'], fontName='Helvetica', fontSize=6.5, leading=9, textColor=colors.HexColor("#1E293B"), alignment=1
+        'BodyStyle', parent=styles['Normal'], fontName='Helvetica', fontSize=7, leading=10, textColor=colors.HexColor("#1E293B"), alignment=1
     )
     
     story.append(Paragraph("Fabskollexionn Customer & Delivery Tracker", title_style))
     story.append(Spacer(1, 15))
     
-    pdf_df = dataframe.drop(columns=["id"], errors="ignore")
-    
-    columns = list(pdf_df.columns)
+    columns = list(dataframe.columns)
     header_row = [Paragraph(str(col).replace("_", " "), header_cell_style) for col in columns]
     data = [header_row] 
     
-    for _, row in pdf_df.iterrows():
+    for _, row in dataframe.iterrows():
         body_row = [Paragraph(str(val), body_cell_style) for val in row.values]
         data.append(body_row)
         
-    # Reallocated 11 metrics configuration map layout points (Total = 588 points max boundary)
-    column_widths = [55, 45, 45, 55, 55, 55, 93, 50, 55, 45, 37]
+    # Reallocated 9 columns configuration points (Total = 582 points)
+    column_widths = [55, 60, 65, 65, 65, 102, 60, 65, 45]
     t = Table(data, colWidths=column_widths, repeatRows=1)
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#1E3A8A")),
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('TOPPADDING', (0,0), (-1,-1), 5),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
         ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.HexColor("#FFFFFF"), colors.HexColor("#F8FAFC")]),
-        ('GRID', (0,0), (-1,-1), 0.4, colors.HexColor("#E2E8F0")),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E2E8F0")),
     ]))
     
     story.append(t)
@@ -236,22 +224,18 @@ with tab_paste:
             if parsed_data["Customer_Name"] != "Not Provided" or parsed_data["Delivery_Address"] != "Not Provided":
                 now = datetime.now()
                 timestamp_log = now.strftime("%Y-%m-%d %H:%M:%S")
-                log_month = now.strftime("%B")        # e.g., June
-                log_weekday = now.strftime("%A")      # e.g., Monday
                 
                 final_row = {
                     "Time_Log": timestamp_log,
-                    "Log_Month": log_month,
-                    "Log_Weekday": log_weekday,
                     "Customer_Name": parsed_data["Customer_Name"],
                     "Customer_Phone": parsed_data["Customer_Phone"],
                     "Receiver_Name": parsed_data["Receiver_Name"],
                     "Delivery_Address": parsed_data["Delivery_Address"],
                     "Receiver_State": parsed_data["Receiver_State"],
                     "Receiver_Phone": parsed_data["Receiver_Phone"],
+                    "Status": f"{payment_condition} ({source_channel})",
                     "Payment_Status": payment_condition,
-                    "Marketplace_Channel": source_channel,
-                    "Status": f"{payment_condition} ({source_channel})"  # Retained for fallback backward compatibility
+                    "Marketplace_Channel": source_channel
                 }
                 
                 save_order_to_db(final_row)
@@ -281,33 +265,53 @@ with tab_paste:
 with tab_view:
     st.markdown(f"### <span style='color:{accent_color}'>View Data & File Exporters</span>", unsafe_allow_html=True)
     
-    current_ledger_df = load_orders_from_db()
+    raw_ledger_df = load_orders_from_db()
     
-    if not current_ledger_df.empty:
+    if not raw_ledger_df.empty:
+        # --- DATETIME TRANSFORMATION ENGINE ---
+        # Parse the raw backend string into true date objects
+        date_objects = pd.to_datetime(raw_ledger_df['Time_Log'], errors='coerce')
+        
+        # Split into explicit, readable columns
+        raw_ledger_df['Log_Month'] = date_objects.dt.strftime('%B')
+        raw_ledger_df['Day_of_Week'] = date_objects.dt.strftime('%A')
+        
+        # Fill placeholders if anything falls through empty
+        raw_ledger_df['Log_Month'] = raw_ledger_df['Log_Month'].fillna('Unknown')
+        raw_ledger_df['Day_of_Week'] = raw_ledger_df['Day_of_Week'].fillna('Unknown')
+        
+        # Structural Reordering Matrix: Completely isolates and drops hidden tracking IDs
+        arranged_df = raw_ledger_df[[
+            'id', 'Log_Month', 'Day_of_Week', 'Customer_Name', 'Customer_Phone', 
+            'Receiver_Name', 'Delivery_Address', 'Receiver_State', 'Receiver_Phone', 
+            'Payment_Status', 'Marketplace_Channel'
+        ]]
+
         st.markdown("#### 🔍 Quick Search Filter")
         search_query = st.text_input(
-            "Search by Customer, Receiver, Phone, State, Month, Weekday, or Channel:", 
+            "Search by Name, Phone, State, Channel, Day, or Address:", 
             placeholder="Type anything to filter instantly..."
         ).strip().lower()
         
         if search_query:
-            filtered_df = current_ledger_df[
-                current_ledger_df['Customer_Name'].str.lower().str.contains(search_query, na=False) |
-                current_ledger_df['Receiver_Name'].str.lower().str.contains(search_query, na=False) |
-                current_ledger_df['Customer_Phone'].str.lower().str.contains(search_query, na=False) |
-                current_ledger_df['Receiver_Phone'].str.lower().str.contains(search_query, na=False) |
-                current_ledger_df['Receiver_State'].str.lower().str.contains(search_query, na=False) |
-                current_ledger_df['Delivery_Address'].str.lower().str.contains(search_query, na=False) |
-                current_ledger_df['Log_Month'].str.lower().str.contains(search_query, na=False) |
-                current_ledger_df['Log_Weekday'].str.lower().str.contains(search_query, na=False) |
-                current_ledger_df['Payment_Status'].str.lower().str.contains(search_query, na=False) |
-                current_ledger_df['Marketplace_Channel'].str.lower().str.contains(search_query, na=False)
+            filtered_df = arranged_df[
+                arranged_df['Customer_Name'].str.lower().str.contains(search_query, na=False) |
+                arranged_df['Receiver_Name'].str.lower().str.contains(search_query, na=False) |
+                arranged_df['Customer_Phone'].str.lower().str.contains(search_query, na=False) |
+                arranged_df['Receiver_Phone'].str.lower().str.contains(search_query, na=False) |
+                arranged_df['Receiver_State'].str.lower().str.contains(search_query, na=False) |
+                arranged_df['Delivery_Address'].str.lower().str.contains(search_query, na=False) |
+                arranged_df['Payment_Status'].str.lower().str.contains(search_query, na=False) |
+                arranged_df['Marketplace_Channel'].str.lower().str.contains(search_query, na=False) |
+                arranged_df['Log_Month'].str.lower().str.contains(search_query, na=False) |
+                arranged_df['Day_of_Week'].str.lower().str.contains(search_query, na=False)
             ]
-            st.caption(f"Showing {len(filtered_df)} of {len(current_ledger_df)} records matching '{search_query}'")
+            st.caption(f"Showing {len(filtered_df)} of {len(arranged_df)} records matching '{search_query}'")
         else:
-            filtered_df = current_ledger_df.copy()
+            filtered_df = arranged_df.copy()
 
         col_dl1, col_dl2, col_dl3 = st.columns(3)
+        # Clean export view: strips the database primary key out entirely for file downloads
         export_df = filtered_df.drop(columns=["id"], errors="ignore")
         
         csv_bin = export_df.to_csv(index=False).encode('utf-8')
@@ -319,14 +323,14 @@ with tab_view:
         xlsx_io.seek(0)
         col_dl2.download_button("📈 Download Filtered Excel (.xlsx)", xlsx_io, "fabskollexionn_ledger.xlsx", use_container_width=True)
         
-        pdf_io = generate_pdf(filtered_df)
+        pdf_io = generate_pdf(export_df)
         col_dl3.download_button("📕 Export Filtered PDF", pdf_io, "fabskollexionn_ledger.pdf", "application/pdf", use_container_width=True)
         
         st.markdown("---")
         
         st.markdown("#### 🚨 Delete Specified Data Rows")
         deletion_options = {
-            f"Row ID {row['id']} | {row['Customer_Name']} ({row['Time_Log']})": row['id']
+            f"Row ID {row['id']} | {row['Customer_Name']} ({row['Log_Month']}, {row['Day_of_Week']})": row['id']
             for _, row in filtered_df.iterrows()
         }
         
