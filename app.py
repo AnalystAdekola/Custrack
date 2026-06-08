@@ -162,48 +162,87 @@ def extract_order_details(text_block):
 # --- STREAMLIT PAGE SETUP ---
 st.set_page_config(page_title="Fabskollexionn Tracker", page_icon="🛍️", layout="wide", initial_sidebar_state="collapsed")
 
-# --- TOP-RIGHT CORNER BULB TOGGLE ENGINE ---
-# Create an upper structural layout grid pushing the switch layout to the absolute edge
-head_title_col, head_toggle_col = st.columns([12, 1])
-
 # Keep track of theme state via Session State
 if "theme_dark" not in st.session_state:
     st.session_state.theme_dark = False
 
+# --- ASYMMETRIC HEADER ROW GRID ---
+head_title_col, head_toggle_col = st.columns([15, 1])
+
 with head_toggle_col:
-    # Render theme state as a clean lightbulb click toggle button
-    bulb_icon = "💡" if st.session_state.theme_dark else "🔦"
+    # Explicit container padding prevents button labels from being cropped or hidden
+    st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+    bulb_label = "💡 On" if st.session_state.theme_dark else "💡 Off"
     help_hint = "Switch to Light Mode" if st.session_state.theme_dark else "Switch to Dark Mode"
     
-    if st.button(bulb_icon, help=help_hint, use_container_width=True):
+    if st.button(bulb_label, help=help_hint, use_container_width=True):
         st.session_state.theme_dark = not st.session_state.theme_dark
         st.rerun()
 
 with head_title_col:
     st.title("🛍️ Fabskollexionn Customer & Delivery Tracker")
 
-# --- LIVE STYLING OVERRIDES ---
+# --- HIGH-CONTRAST GLOBAL CSS WORKSPACE SYSTEM ---
 if st.session_state.theme_dark:
-    text_color = "#FFFFFF"
+    text_color = "#F8FAFC"
     accent_color = "#38BDF8"
+    card_bg = "#1E293B"
+    border_color = "#334155"
+    
     st.markdown(f"""
         <style>
-        .stApp {{ background-color: #0F172A !important; color: {text_color} !important; }}
-        h1, h2, h3, h4, h5, h6, p, label, span, [data-testid="stMarkdownContainer"] p {{ color: {text_color} !important; font-weight: 500; }}
-        textarea {{ background-color: #1E293B !important; color: #FFFFFF !important; border: 1px solid #475569 !important; font-size: 16px !important; }}
-        .stTabs [data-baseweb="tab"] {{ color: #94A3B8 !important; }}
-        .stTabs [aria-selected="true"] {{ color: {accent_color} !important; font-weight: bold !important; }}
-        /* Clean style tweaks for button alignment */
-        div[data-testid="stColumn"] button {{ margin-top: 10px; }}
+        html, body, [data-testid="stAppViewContainer"] {{
+            background-color: #0F172A !important;
+            color: {text_color} !important;
+            font-family: 'Inter', -apple-system, sans-serif !important;
+        }}
+        /* Target headers, body markers, select labels, and custom text blocks */
+        h1, h2, h3, h4, h5, h6, p, label, span, sm, [data-testid="stMarkdownContainer"] p {{
+            color: {text_color} !important;
+        }}
+        /* Force standard visibility across inputs and drop-downs */
+        .stSelectbox div[data-baseweb="select"], .stTextInput input, .stTextArea textarea {{
+            background-color: {card_bg} !important;
+            color: #FFFFFF !important;
+            border: 1px solid {border_color} !important;
+        }}
+        .stTabs [data-baseweb="tab"] {{
+            color: #94A3B8 !important;
+        }}
+        .stTabs [aria-selected="true"] {{
+            color: {accent_color} !important;
+            font-weight: 600 !important;
+        }}
         </style>
     """, unsafe_allow_html=True)
 else:
+    text_color = "#0F172A"
     accent_color = "#1E3A8A"
-    st.markdown("""
+    card_bg = "#FFFFFF"
+    border_color = "#CBD5E1"
+    
+    st.markdown(f"""
         <style>
-        .stApp { background-color: #F8FAFC !important; color: #1E293B !important; }
-        textarea { background-color: #FFFFFF !important; color: #1E293B !important; border: 1px solid #CBD5E1 !important; }
-        div[data-testid="stColumn"] button { margin-top: 10px; }
+        html, body, [data-testid="stAppViewContainer"] {{
+            background-color: #F8FAFC !important;
+            color: {text_color} !important;
+            font-family: 'Inter', -apple-system, sans-serif !important;
+        }}
+        h1, h2, h3, h4, h5, h6, p, label, span, [data-testid="stMarkdownContainer"] p {{
+            color: {text_color} !important;
+        }}
+        .stSelectbox div[data-baseweb="select"], .stTextInput input, .stTextArea textarea {{
+            background-color: {card_bg} !important;
+            color: {text_color} !important;
+            border: 1px solid {border_color} !important;
+        }}
+        .stTabs [data-baseweb="tab"] {{
+            color: #475569 !important;
+        }}
+        .stTabs [aria-selected="true"] {{
+            color: {accent_color} !important;
+            font-weight: 600 !important;
+        }}
         </style>
     """, unsafe_allow_html=True)
 
@@ -434,10 +473,14 @@ with tab_dash:
         vip_phone = leaderboard.iloc[0]["📞 Unique Phone Number"]
         vip_count = leaderboard.iloc[0]["🛍️ Times Patronized"]
         
+        # High contrast fallback colors for dynamic loyalty alert box components
+        alert_box_bg = "#1E293B" if st.session_state.theme_dark else "#E2E8F0"
+        alert_text_base = "#FFFFFF" if st.session_state.theme_dark else "#1E293B"
+        
         st.markdown(f"""
-        <div style="background-color: #1E293B; border-left: 5px solid #38BDF8; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
+        <div style="background-color: {alert_box_bg}; border-left: 5px solid #38BDF8; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
             <span style="color: #38BDF8; font-weight: bold;">✨ VIP Customer Alert:</span><br>
-            The customer with phone number <strong style="color: white;">{vip_phone}</strong> (<span style="color: #94A3B8;">{vip_customer}</span>) is your top patron, ordering <strong>{vip_count} times</strong>!
+            <span style="color: {alert_text_base};">The customer with phone number <strong>{vip_phone}</strong> ({vip_customer}) is your top patron, ordering <strong>{vip_count} times</strong>!</span>
         </div>
         """, unsafe_allow_html=True)
         
@@ -445,4 +488,3 @@ with tab_dash:
         
     else:
         st.info("No analytics data available yet. Once you begin saving order entries in Tab 1, your loyalty metrics will populate here automatically.")
-        
