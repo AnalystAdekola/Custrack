@@ -162,19 +162,28 @@ def extract_order_details(text_block):
 # --- STREAMLIT PAGE SETUP ---
 st.set_page_config(page_title="Fabskollexionn Tracker", page_icon="🛍️", layout="wide", initial_sidebar_state="collapsed")
 
-# --- TOP HEADER ROW: TITLE & FLOATING TOP-RIGHT THEME TOGGLE ---
-header_left, header_right = st.columns([5, 1])
+# --- TOP-RIGHT CORNER BULB TOGGLE ENGINE ---
+# Create an upper structural layout grid pushing the switch layout to the absolute edge
+head_title_col, head_toggle_col = st.columns([12, 1])
 
-with header_left:
+# Keep track of theme state via Session State
+if "theme_dark" not in st.session_state:
+    st.session_state.theme_dark = False
+
+with head_toggle_col:
+    # Render theme state as a clean lightbulb click toggle button
+    bulb_icon = "💡" if st.session_state.theme_dark else "🔦"
+    help_hint = "Switch to Light Mode" if st.session_state.theme_dark else "Switch to Dark Mode"
+    
+    if st.button(bulb_icon, help=help_hint, use_container_width=True):
+        st.session_state.theme_dark = not st.session_state.theme_dark
+        st.rerun()
+
+with head_title_col:
     st.title("🛍️ Fabskollexionn Customer & Delivery Tracker")
-    st.markdown("Copy, paste, and permanently lock data rows onto local database storage.")
 
-with header_right:
-    st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
-    theme_choice = st.selectbox("🌓 Theme", ["Light Mode", "Dark Mode"], label_visibility="collapsed")
-
-# --- FIXED DUAL THEME MECHANICS ---
-if theme_choice == "Dark Mode":
+# --- LIVE STYLING OVERRIDES ---
+if st.session_state.theme_dark:
     text_color = "#FFFFFF"
     accent_color = "#38BDF8"
     st.markdown(f"""
@@ -184,7 +193,8 @@ if theme_choice == "Dark Mode":
         textarea {{ background-color: #1E293B !important; color: #FFFFFF !important; border: 1px solid #475569 !important; font-size: 16px !important; }}
         .stTabs [data-baseweb="tab"] {{ color: #94A3B8 !important; }}
         .stTabs [aria-selected="true"] {{ color: {accent_color} !important; font-weight: bold !important; }}
-        div[data-testid="stSelectbox"] {{ background-color: #1E293B !important; border-radius: 4px; }}
+        /* Clean style tweaks for button alignment */
+        div[data-testid="stColumn"] button {{ margin-top: 10px; }}
         </style>
     """, unsafe_allow_html=True)
 else:
@@ -193,9 +203,11 @@ else:
         <style>
         .stApp { background-color: #F8FAFC !important; color: #1E293B !important; }
         textarea { background-color: #FFFFFF !important; color: #1E293B !important; border: 1px solid #CBD5E1 !important; }
+        div[data-testid="stColumn"] button { margin-top: 10px; }
         </style>
     """, unsafe_allow_html=True)
 
+st.markdown("Copy, paste, and permanently lock data rows onto local database storage.")
 st.markdown("---")
 
 tab_paste, tab_view, tab_dash = st.tabs(["📥 Quick Paste Workspace", "📊 View Data & Cloud Exports", "🏆 Patronage Dashboard"])
@@ -433,3 +445,4 @@ with tab_dash:
         
     else:
         st.info("No analytics data available yet. Once you begin saving order entries in Tab 1, your loyalty metrics will populate here automatically.")
+        
