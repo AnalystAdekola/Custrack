@@ -48,7 +48,7 @@ def init_db():
 def save_order_to_db(order_dict):
     """Inserts a new parsed order row directly onto the disk storage."""
     conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
+    cursor = cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO orders (Time_Log, Customer_Name, Customer_Phone, Receiver_Name, Delivery_Address, Receiver_State, Receiver_Phone, Status, Payment_Status, Marketplace_Channel)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -219,18 +219,21 @@ if st.session_state.theme_dark:
             color: #0F172A !important;
             font-weight: 500 !important;
         }}
-        /* 2. COMPREHENSIVE BUTTONS FIX: Targets standard actions, downloads, and custom theme switch buttons */
+        /* 2. COMPREHENSIVE BUTTONS FIX: Starks solid black font directly on all action and download interfaces */
         div.stButton button, 
         div.stDownloadButton button,
-        [data-testid="stBaseButton-primary"],
-        [data-testid="stBaseButton-secondary"] {{
+        div.stButton button p,
+        div.stDownloadButton button p,
+        [data-testid="stBaseButton-primary"] *,
+        [data-testid="stBaseButton-secondary"] * {{
             background-color: #38BDF8 !important;
             color: #0F172A !important;
             border: 1px solid #38BDF8 !important;
             font-weight: bold !important;
         }}
-        /* Hover effect for cleaner user interaction */
-        div.stButton button:hover, div.stDownloadButton button:hover {{
+        /* Hover effect configuration matrix */
+        div.stButton button:hover, div.stDownloadButton button:hover,
+        div.stButton button:hover p, div.stDownloadButton button:hover p {{
             background-color: #0EA5E9 !important;
             color: #FFFFFF !important;
             border: 1px solid #0EA5E9 !important;
