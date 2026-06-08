@@ -187,6 +187,8 @@ if st.session_state.theme_dark:
     accent_color = "#38BDF8"
     card_bg = "#1E293B"
     border_color = "#334155"
+    chart_color_1 = "#38BDF8"
+    chart_color_2 = "#F43F5E"
     
     st.markdown(f"""
         <style>
@@ -253,6 +255,8 @@ else:
     accent_color = "#1E3A8A"
     card_bg = "#FFFFFF"
     border_color = "#CBD5E1"
+    chart_color_1 = "#1E3A8A"
+    chart_color_2 = "#D97706"
     
     st.markdown(f"""
         <style>
@@ -492,6 +496,7 @@ with tab_dash:
     dash_df = load_orders_from_db()
     
     if not dash_df.empty:
+        # Metrics Row
         total_orders = len(dash_df)
         unique_customers = dash_df['Customer_Phone'].nunique()
         repeat_customers = sum(dash_df['Customer_Phone'].value_counts() > 1)
@@ -503,6 +508,41 @@ with tab_dash:
             st.metric("👥 Total Unique Customers", unique_customers)
         with col_m3:
             st.metric("🔄 Loyal Repeat Customers", repeat_customers)
+            
+        st.markdown("---")
+        
+        # --- NEW VISUAL ANALYTICAL DASHBOARD CHARTS ---
+        st.markdown(f"### <span style='color:{accent_color}'>📊 Sales & Operations Analytics</span>", unsafe_allow_html=True)
+        
+        # Convert log times to pandas Datetime format safely
+        date_series = pd.to_datetime(dash_df['Time_Log'], errors='coerce')
+        dash_df['Extracted_Day'] = date_series.dt.strftime('%A').fillna('Unknown')
+        
+        # Create visual layout splits
+        chart_col1, chart_col2 = st.columns(2)
+        
+        with chart_col1:
+            st.markdown("#### 📅 Day of the Week Sales Count")
+            
+            # Formulate chronological sorting index
+            day_counts = dash_df['Extracted_Day'].value_counts().reset_index()
+            day_counts.columns = ['Day of Week', 'Sales Volume']
+            
+            week_chronological_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+            day_counts['Day of Week'] = pd.Categorical(day_counts['Day of Week'], categories=week_chronological_order, ordered=True)
+            day_counts = day_counts.sort_values('Day of Week')
+            
+            st.bar_chart(data=day_counts, x='Day of Week', y='Sales Volume', color=chart_color_1, use_container_width=True)
+            
+        with chart_col2:
+            st.markdown("#### 📍 Regional Distribution Count")
+            
+            # Group by state data fields safely
+            state_counts = dash_df['Receiver_State'].value_counts().reset_index()
+            state_counts.columns = ['Receiver State', 'Orders Volume']
+            state_counts = state_counts.sort_values(by='Orders Volume', ascending=False)
+            
+            st.bar_chart(data=state_counts, x='Receiver State', y='Orders Volume', color=chart_color_2, use_container_width=True)
             
         st.markdown("---")
         
