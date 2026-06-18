@@ -192,8 +192,7 @@ def extract_order_details(text_block):
 # --- RE-CONFIGURED PAGE INTERFACE SETUP ---
 st.set_page_config(page_title="Custrack — Multi-User Workspace", page_icon="🛍️", layout="wide", initial_sidebar_state="expanded")
 
-# Initialize Cookie Cache Manager Component
-@st.cache_resource
+# Initialize Cookie Cache Manager Component Directly (Warning Resolved)
 cookie_manager = cookie_ctx.CookieManager()
 saved_user_cookie = cookie_manager.get(cookie="custrack_user_id")
 
