@@ -5,6 +5,9 @@ import streamlit as st
 from datetime import datetime
 import io
 
+# Cookie Management Engine Import
+import extra_streamlit_components as cookie_ctx
+
 # PDF Generation Imports
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
@@ -47,12 +50,11 @@ def init_db():
         )
     """)
     
-    # 🛠️ DYNAMIC MIGRATION LAYER: Inspect the table and add user_id if it's missing from old versions
+    # DYNAMIC MIGRATION LAYER: Inspect the table and add user_id if it's missing from old versions
     cursor.execute("PRAGMA table_info(orders)")
     columns = [info[1] for info in cursor.fetchall()]
     
     if "user_id" not in columns:
-        # Default legacy orders to user_id = 1 so your old records remain visible
         cursor.execute("ALTER TABLE orders ADD COLUMN user_id INTEGER DEFAULT 1")
         
     conn.commit()
@@ -190,17 +192,38 @@ def extract_order_details(text_block):
 # --- RE-CONFIGURED PAGE INTERFACE SETUP ---
 st.set_page_config(page_title="Custrack — Multi-User Workspace", page_icon="🛍️", layout="wide", initial_sidebar_state="expanded")
 
-# Initialize Authorization Memory Containers
+# Initialize Cookie Cache Manager Component
+@st.cache_resource
+def get_cookie_manager():
+    return cookie_ctx.CookieManager()
+
+cookie_manager = get_cookie_manager()
+saved_user_cookie = cookie_manager.get(cookie="custrack_user_id")
+
+# Synchronize Long-Term Browser Memory with Active App Session States
 if "user_authenticated" not in st.session_state:
-    st.session_state.user_authenticated = False
-if "user_id" not in st.session_state:
-    st.session_state.user_id = None
-if "biz_name" not in st.session_state:
-    st.session_state.biz_name = ""
-if "biz_logo" not in st.session_state:
-    st.session_state.biz_logo = None
-if "theme_dark" not in st.session_state:
-    st.session_state.theme_dark = False
+    if saved_user_cookie is not None and str(saved_user_cookie).strip() != "":
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, Business_Name, Business_Logo FROM users WHERE id = ?", (int(saved_user_cookie),))
+        user_match = cursor.fetchone()
+        conn.close()
+        
+        if user_match:
+            st.session_state.user_authenticated = True
+            st.session_state.user_id = user_match[0]
+            st.session_state.biz_name = user_match[1]
+            st.session_state.biz_logo = user_match[2]
+        else:
+            st.session_state.user_authenticated = False
+    else:
+        st.session_state.user_authenticated = False
+
+# Fallback initializations
+if "user_id" not in st.session_state: st.session_state.user_id = None
+if "biz_name" not in st.session_state: st.session_state.biz_name = ""
+if "biz_logo" not in st.session_state: st.session_state.biz_logo = None
+if "theme_dark" not in st.session_state: st.session_state.theme_dark = False
 
 
 # --- THEME CUSTOM STYLE LAYOUT INJECTORS ---
@@ -260,7 +283,6 @@ if not st.session_state.user_authenticated:
         reg_pass = st.text_input("Create Password", type="password")
         reg_confirm = st.text_input("Reconfirm Password", type="password")
         
-        # Live Password Requirement Matrix Rules Evaluation
         has_upper = any(c.isupper() for c in reg_pass)
         has_digit = any(c.isdigit() for c in reg_pass)
         has_min_len = len(reg_pass) >= 7
@@ -314,6 +336,10 @@ if not st.session_state.user_authenticated:
                 st.session_state.user_id = user_match[0]
                 st.session_state.biz_name = user_match[1]
                 st.session_state.biz_logo = user_match[2]
+                
+                # Drop a persistent identifier token into user browser cookies for 30 days
+                cookie_manager.set("custrack_user_id", str(user_match[0]), max_age=2592000)
+                
                 st.toast(f"Welcome back to Custrack, {st.session_state.biz_name}!")
                 st.rerun()
             else:
@@ -327,7 +353,6 @@ if not st.session_state.user_authenticated:
 
 # --- SIDEBAR MENU ARCHISTRATION ---
 with st.sidebar:
-    # 3. Dynamic Custom Welcome Branding Display Grid Layout Component
     if st.session_state.biz_logo:
         st.image(st.session_state.biz_logo, width=110)
     
@@ -354,7 +379,30 @@ with st.sidebar:
         st.session_state.user_id = None
         st.session_state.biz_name = ""
         st.session_state.biz_logo = None
+        
+        # Purge localized storage cookies instantly
+        cookie_manager.delete("custrack_user_id")
         st.rerun()
+
+# --- ADMIN VIEW CONDITIONAL ATTACHMENT TIE-IN ---
+with st.sidebar:
+    show_raw_database = st.checkbox("🔍 Open Secret Admin DB Viewer")
+
+if show_raw_database:
+    st.markdown("## 🔐 Master Database Administrative Overview")
+    st.warning("This panel bypasses user filters and shows raw data stored on disk.")
+    conn = sqlite3.connect(DB_FILE)
+    st.subheader("👥 Registered Corporate Users (`users` Table)")
+    try:
+        all_users_df = pd.read_sql_query("SELECT id, Email, Password, Business_Name FROM users", conn)
+        st.dataframe(all_users_df, use_container_width=True)
+    except Exception as e: st.error(f"Could not read users table: {e}")
+    st.subheader("📦 All Customer Dispatches Master Log (`orders` Table)")
+    try:
+        all_orders_df = pd.read_sql_query("SELECT * FROM orders", conn)
+        st.dataframe(all_orders_df, use_container_width=True)
+    except Exception as e: st.error(f"Could not read orders table: {e}")
+    conn.close()
 
 # --- DYNAMICALLY SEGREGATED CONTENT LOADING FRAMEWORK ROUTER ---
 USER_CONTEXT_ID = st.session_state.user_id
@@ -402,7 +450,6 @@ if navigation_selection == "📥 Quick Paste Workspace":
                     "Marketplace_Channel": source_channel
                 }
                 
-                # Locked seamlessly to the active user context profile identity
                 save_order_to_db(final_row, USER_CONTEXT_ID)
                 
                 st.markdown(f"""
@@ -429,7 +476,6 @@ if navigation_selection == "📥 Quick Paste Workspace":
 elif navigation_selection == "📊 View Data & Cloud Exports":
     st.markdown(f"### <span style='color:{accent_color}'>View Data & File Exporters</span>", unsafe_allow_html=True)
     
-    # Loads isolated user records ONLY
     raw_ledger_df = load_orders_from_db(USER_CONTEXT_ID)
     
     if not raw_ledger_df.empty:
@@ -572,31 +618,3 @@ elif navigation_selection == "🏆 Patronage Dashboard":
         st.dataframe(leaderboard, use_container_width=True)
     else:
         st.info("No data available yet. Save entries in Tab 1 to populate metrics.")
-
-# --- SECRET SUPER ADMIN VIEW DATABASE ENGINE ---
-with st.sidebar:
-    st.markdown("---")
-    # Hide this checkbox or name it something subtle if you want it completely hidden
-    show_raw_database = st.checkbox("🔍 Open Secret Admin DB Viewer")
-
-if show_raw_database:
-    st.markdown("## 🔐 Master Database Administrative Overview")
-    st.warning("This panel bypasses user filters and shows raw data stored on disk.")
-    
-    conn = sqlite3.connect(DB_FILE)
-    
-    st.subheader("👥 Registered Corporate Users (`users` Table)")
-    try:
-        all_users_df = pd.read_sql_query("SELECT id, Email, Password, Business_Name FROM users", conn)
-        st.dataframe(all_users_df, use_container_width=True)
-    except Exception as e:
-        st.error(f"Could not read users table: {e}")
-        
-    st.subheader("📦 All Customer Dispatches Master Log (`orders` Table)")
-    try:
-        all_orders_df = pd.read_sql_query("SELECT * FROM orders", conn)
-        st.dataframe(all_orders_df, use_container_width=True)
-    except Exception as e:
-        st.error(f"Could not read orders table: {e}")
-        
-    conn.close()
