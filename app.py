@@ -189,16 +189,21 @@ def extract_order_details(text_block):
 # --- NATIVE INTERFACE & SESSION RECOVERY ENGINE ---
 st.set_page_config(page_title="Custrack — Multi-User Workspace", page_icon="🛍️", layout="wide", initial_sidebar_state="expanded")
 
-# Initialize fundamental variables in session state immediately
+# Recover parameters from URL parameters early
+url_session_id = st.query_params.get("session")
+url_theme_preference = st.query_params.get("theme")
+
+# Initialize standard parameter fallback states with URL memory checks
 if "user_authenticated" not in st.session_state: st.session_state.user_authenticated = False
 if "user_id" not in st.session_state: st.session_state.user_id = None
 if "biz_name" not in st.session_state: st.session_state.biz_name = ""
 if "biz_logo" not in st.session_state: st.session_state.biz_logo = None
-if "theme_dark" not in st.session_state: st.session_state.theme_dark = False
 
-# NATIVE RECOVERY: Look at the URL parameters on page load/refresh
-url_session_id = st.query_params.get("session")
+# If the theme URL query parameter exists, prioritize it during initial layout builds
+if "theme_dark" not in st.session_state: 
+    st.session_state.theme_dark = (url_theme_preference == "dark")
 
+# Session Authentication Pipeline Validation
 if not st.session_state.user_authenticated and url_session_id:
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -324,8 +329,9 @@ if not st.session_state.user_authenticated:
                 st.session_state.biz_name = user_match[1]
                 st.session_state.biz_logo = user_match[2]
                 
-                # NATIVE LOG-IN RETENTION: Commit safe ID directly to URL parameters
+                # NATIVE LOGIN & THEME RETENTION: Write states cleanly to query strings
                 st.query_params["session"] = str(user_match[0])
+                st.query_params["theme"] = "dark" if st.session_state.theme_dark else "light"
                 
                 st.toast(f"Welcome back to Custrack, {st.session_state.biz_name}!")
                 st.rerun()
@@ -359,6 +365,8 @@ with st.sidebar:
     bulb_label = "💡 Theme Mode: Dark" if st.session_state.theme_dark else "💡 Theme Mode: Light"
     if st.button(bulb_label, use_container_width=True):
         st.session_state.theme_dark = not st.session_state.theme_dark
+        # Dynamically append or update the active theme token inside browser URL parameters
+        st.query_params["theme"] = "dark" if st.session_state.theme_dark else "light"
         st.rerun()
         
     if st.button("🚪 Log Out of Profile", type="secondary", use_container_width=True):
