@@ -194,10 +194,7 @@ st.set_page_config(page_title="Custrack â€” Multi-User Workspace", page_icon="ðŸ
 
 # Initialize Cookie Cache Manager Component
 @st.cache_resource
-def get_cookie_manager():
-    return cookie_ctx.CookieManager()
-
-cookie_manager = get_cookie_manager()
+cookie_manager = cookie_ctx.CookieManager()
 saved_user_cookie = cookie_manager.get(cookie="custrack_user_id")
 
 # Synchronize Long-Term Browser Memory with Active App Session States
