@@ -15,7 +15,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 DB_FILE = "fabskollexionn.db"
 
 def init_db():
-    """Initializes the multi-user user registry and transactional databases."""
+    """Initializes the multi-user user registry and transactional databases with safety migrations."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     
@@ -30,11 +30,10 @@ def init_db():
         )
     """)
     
-    # 2. Segmented Orders Table
+    # 2. Base Orders Table Setup
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
             Time_Log TEXT,
             Customer_Name TEXT,
             Customer_Phone TEXT,
@@ -44,10 +43,18 @@ def init_db():
             Receiver_Phone TEXT,
             Status TEXT,
             Payment_Status TEXT,
-            Marketplace_Channel TEXT,
-            FOREIGN KEY(user_id) REFERENCES users(id)
+            Marketplace_Channel TEXT
         )
     """)
+    
+    # 🛠️ DYNAMIC MIGRATION LAYER: Inspect the table and add user_id if it's missing from old versions
+    cursor.execute("PRAGMA table_info(orders)")
+    columns = [info[1] for info in cursor.fetchall()]
+    
+    if "user_id" not in columns:
+        # Default legacy orders to user_id = 1 so your old records remain visible
+        cursor.execute("ALTER TABLE orders ADD COLUMN user_id INTEGER DEFAULT 1")
+        
     conn.commit()
     conn.close()
 
