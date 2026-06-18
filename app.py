@@ -5,9 +5,6 @@ import streamlit as st
 from datetime import datetime
 import io
 
-# Cookie Management Engine Import
-import extra_streamlit_components as cookie_ctx
-
 # PDF Generation Imports
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
@@ -189,33 +186,23 @@ def extract_order_details(text_block):
     return extracted
 
 
-# --- RE-CONFIGURED PAGE INTERFACE SETUP ---
+# --- NATIVE INTERFACE & SESSION RECOVERY ENGINE ---
 st.set_page_config(page_title="Custrack — Multi-User Workspace", page_icon="🛍️", layout="wide", initial_sidebar_state="expanded")
 
-# Initialize Cookie Manager directly
-cookie_manager = cookie_ctx.CookieManager()
-
-# Ensure standard parameter fallback initialization happens immediately
+# Initialize fundamental variables in session state immediately
 if "user_authenticated" not in st.session_state: st.session_state.user_authenticated = False
 if "user_id" not in st.session_state: st.session_state.user_id = None
 if "biz_name" not in st.session_state: st.session_state.biz_name = ""
 if "biz_logo" not in st.session_state: st.session_state.biz_logo = None
 if "theme_dark" not in st.session_state: st.session_state.theme_dark = False
 
-# 🕒 TIMING SAFEGUARD: Fetch cookies safely to avoid dropouts before the browser can respond
-all_cookies = cookie_manager.get_all()
+# NATIVE RECOVERY: Look at the URL parameters on page load/refresh
+url_session_id = st.query_params.get("session")
 
-# Pause execution quietly if the browser cookie engine is initializing
-if not all_cookies:
-    st.stop()
-
-saved_user_cookie = all_cookies.get("custrack_user_id")
-
-# Synchronize Long-Term Browser Memory with Active App Session States
-if not st.session_state.user_authenticated and saved_user_cookie:
+if not st.session_state.user_authenticated and url_session_id:
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute("SELECT id, Business_Name, Business_Logo FROM users WHERE id = ?", (int(saved_user_cookie),))
+    cursor.execute("SELECT id, Business_Name, Business_Logo FROM users WHERE id = ?", (int(url_session_id),))
     user_match = cursor.fetchone()
     conn.close()
     
@@ -224,7 +211,6 @@ if not st.session_state.user_authenticated and saved_user_cookie:
         st.session_state.user_id = user_match[0]
         st.session_state.biz_name = user_match[1]
         st.session_state.biz_logo = user_match[2]
-        st.rerun()
 
 
 # --- THEME CUSTOM STYLE LAYOUT INJECTORS ---
@@ -338,8 +324,8 @@ if not st.session_state.user_authenticated:
                 st.session_state.biz_name = user_match[1]
                 st.session_state.biz_logo = user_match[2]
                 
-                # Drop a persistent identifier token into user browser cookies for 30 days
-                cookie_manager.set("custrack_user_id", str(user_match[0]), max_age=2592000)
+                # NATIVE LOG-IN RETENTION: Commit safe ID directly to URL parameters
+                st.query_params["session"] = str(user_match[0])
                 
                 st.toast(f"Welcome back to Custrack, {st.session_state.biz_name}!")
                 st.rerun()
@@ -381,8 +367,8 @@ with st.sidebar:
         st.session_state.biz_name = ""
         st.session_state.biz_logo = None
         
-        # Purge localized storage cookies instantly
-        cookie_manager.delete("custrack_user_id")
+        # NATIVE PURGE: Instantly wipe parameters out of the URL bar
+        st.query_params.clear()
         st.rerun()
 
 # --- ADMIN VIEW CONDITIONAL ATTACHMENT TIE-IN ---
