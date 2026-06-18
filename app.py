@@ -192,34 +192,39 @@ def extract_order_details(text_block):
 # --- RE-CONFIGURED PAGE INTERFACE SETUP ---
 st.set_page_config(page_title="Custrack — Multi-User Workspace", page_icon="🛍️", layout="wide", initial_sidebar_state="expanded")
 
-# Initialize Cookie Cache Manager Component Directly (Warning Resolved)
+# Initialize Cookie Manager directly
 cookie_manager = cookie_ctx.CookieManager()
-saved_user_cookie = cookie_manager.get(cookie="custrack_user_id")
 
-# Synchronize Long-Term Browser Memory with Active App Session States
-if "user_authenticated" not in st.session_state:
-    if saved_user_cookie is not None and str(saved_user_cookie).strip() != "":
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute("SELECT id, Business_Name, Business_Logo FROM users WHERE id = ?", (int(saved_user_cookie),))
-        user_match = cursor.fetchone()
-        conn.close()
-        
-        if user_match:
-            st.session_state.user_authenticated = True
-            st.session_state.user_id = user_match[0]
-            st.session_state.biz_name = user_match[1]
-            st.session_state.biz_logo = user_match[2]
-        else:
-            st.session_state.user_authenticated = False
-    else:
-        st.session_state.user_authenticated = False
-
-# Fallback initializations
+# Ensure standard parameter fallback initialization happens immediately
+if "user_authenticated" not in st.session_state: st.session_state.user_authenticated = False
 if "user_id" not in st.session_state: st.session_state.user_id = None
 if "biz_name" not in st.session_state: st.session_state.biz_name = ""
 if "biz_logo" not in st.session_state: st.session_state.biz_logo = None
 if "theme_dark" not in st.session_state: st.session_state.theme_dark = False
+
+# 🕒 TIMING SAFEGUARD: Fetch cookies safely to avoid dropouts before the browser can respond
+all_cookies = cookie_manager.get_all()
+
+# Pause execution quietly if the browser cookie engine is initializing
+if not all_cookies:
+    st.stop()
+
+saved_user_cookie = all_cookies.get("custrack_user_id")
+
+# Synchronize Long-Term Browser Memory with Active App Session States
+if not st.session_state.user_authenticated and saved_user_cookie:
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, Business_Name, Business_Logo FROM users WHERE id = ?", (int(saved_user_cookie),))
+    user_match = cursor.fetchone()
+    conn.close()
+    
+    if user_match:
+        st.session_state.user_authenticated = True
+        st.session_state.user_id = user_match[0]
+        st.session_state.biz_name = user_match[1]
+        st.session_state.biz_logo = user_match[2]
+        st.rerun()
 
 
 # --- THEME CUSTOM STYLE LAYOUT INJECTORS ---
