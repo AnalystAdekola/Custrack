@@ -572,3 +572,31 @@ elif navigation_selection == "🏆 Patronage Dashboard":
         st.dataframe(leaderboard, use_container_width=True)
     else:
         st.info("No data available yet. Save entries in Tab 1 to populate metrics.")
+
+# --- SECRET SUPER ADMIN VIEW DATABASE ENGINE ---
+with st.sidebar:
+    st.markdown("---")
+    # Hide this checkbox or name it something subtle if you want it completely hidden
+    show_raw_database = st.checkbox("🔍 Open Secret Admin DB Viewer")
+
+if show_raw_database:
+    st.markdown("## 🔐 Master Database Administrative Overview")
+    st.warning("This panel bypasses user filters and shows raw data stored on disk.")
+    
+    conn = sqlite3.connect(DB_FILE)
+    
+    st.subheader("👥 Registered Corporate Users (`users` Table)")
+    try:
+        all_users_df = pd.read_sql_query("SELECT id, Email, Password, Business_Name FROM users", conn)
+        st.dataframe(all_users_df, use_container_width=True)
+    except Exception as e:
+        st.error(f"Could not read users table: {e}")
+        
+    st.subheader("📦 All Customer Dispatches Master Log (`orders` Table)")
+    try:
+        all_orders_df = pd.read_sql_query("SELECT * FROM orders", conn)
+        st.dataframe(all_orders_df, use_container_width=True)
+    except Exception as e:
+        st.error(f"Could not read orders table: {e}")
+        
+    conn.close()
