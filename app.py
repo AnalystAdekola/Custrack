@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 from datetime import datetime
 import io
+import time
 
 # PDF Generation Imports
 from reportlab.lib.pagesizes import letter
@@ -11,26 +12,41 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
+# --- COUNTRY DIAL CODE REGISTRY ---
+COUNTRIES = {
+    "Nigeria": "+234",
+    "Ghana": "+233",
+    "United Kingdom": "+44",
+    "United States": "+1",
+    "Canada": "+1",
+    "Kenya": "+254",
+    "South Africa": "+27",
+    "United Arab Emirates": "+971"
+}
+
 # --- BACKEND MULTI-USER DATABASE ENGINE (SQLITE) ---
 DB_FILE = "fabskollexionn.db"
 
 def init_db():
-    """Initializes the multi-user user registry and transactional databases with safety migrations."""
+    """Initializes the multi-user registry with the expanded profile schema and safety migrations."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     
-    # 1. User Accounts Table
+    # Updated User Accounts Table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             Email TEXT UNIQUE,
             Password TEXT,
             Business_Name TEXT,
+            Owner_Name TEXT,
+            Country TEXT,
+            Phone_Number TEXT,
             Business_Logo BLOB
         )
     """)
     
-    # 2. Base Orders Table Setup
+    # Base Orders Table Setup
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,30 +63,50 @@ def init_db():
         )
     """)
     
-    # DYNAMIC MIGRATION LAYER: Inspect the table and add user_id if it's missing from old versions
+    # Migration Check to ensure user_id exists in old database schemas
     cursor.execute("PRAGMA table_info(orders)")
     columns = [info[1] for info in cursor.fetchall()]
-    
     if "user_id" not in columns:
         cursor.execute("ALTER TABLE orders ADD COLUMN user_id INTEGER DEFAULT 1")
+        
+    # Migration Check to append new profile metrics to the users table seamlessly if updating on disk
+    cursor.execute("PRAGMA table_info(users)")
+    u_columns = [info[1] for info in cursor.fetchall()]
+    if "Owner_Name" not in u_columns:
+        cursor.execute("ALTER TABLE users ADD COLUMN Owner_Name TEXT")
+    if "Country" not in u_columns:
+        cursor.execute("ALTER TABLE users ADD COLUMN Country TEXT")
+    if "Phone_Number" not in u_columns:
+        cursor.execute("ALTER TABLE users ADD COLUMN Phone_Number TEXT")
         
     conn.commit()
     conn.close()
 
 # --- SECURITY & REGISTRY UTILITY OPERATIONS ---
-def register_user(email, password, biz_name, logo_bytes):
+def register_base_user(email, password):
+    """Phase 1 registration: Reserves the user profile with credentials."""
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO users (Email, Password, Business_Name, Business_Logo) VALUES (?, ?, ?, ?)",
-            (email, password, biz_name, logo_bytes)
-        )
+        cursor.execute("INSERT INTO users (Email, Password) VALUES (?, ?)", (email, password))
+        generated_id = cursor.lastrowid
         conn.commit()
         conn.close()
-        return True
+        return generated_id
     except sqlite3.IntegrityError:
-        return False
+        return None
+
+def complete_business_profile(user_id, biz_name, owner_name, country, phone, logo_bytes):
+    """Phase 2 registration: Updates the reserved user slot with deep business meta metrics."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE users 
+        SET Business_Name = ?, Owner_Name = ?, Country = ?, Phone_Number = ?, Business_Logo = ?
+        WHERE id = ?
+    """, (biz_name, owner_name, country, phone, logo_bytes, user_id))
+    conn.commit()
+    conn.close()
 
 def verify_user(email, password):
     conn = sqlite3.connect(DB_FILE)
@@ -80,7 +116,7 @@ def verify_user(email, password):
     conn.close()
     return user
 
-# --- DYNAMIC DATA FILTERS BASED ON ACTIVE LOGGED-IN USER ID ---
+# --- TRANSACTIONAL LOG DATABASE READ/WRITE LAYER ---
 def save_order_to_db(order_dict, user_id):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -96,7 +132,6 @@ def save_order_to_db(order_dict, user_id):
     conn.close()
 
 def load_orders_from_db(user_id):
-    """Loads records belonging exclusively to the authenticated user ID profile connection."""
     conn = sqlite3.connect(DB_FILE)
     df = pd.read_sql_query("SELECT * FROM orders WHERE user_id = ?", conn, params=(user_id,))
     conn.close()
@@ -112,11 +147,9 @@ def delete_orders_from_db(id_list, user_id):
     conn.commit()
     conn.close()
 
-# Initialize Database Architecture
 init_db()
 
-
-# --- FIXED HIGH-CONTRAST PDF GENERATOR WITH AUTO-WRAPPING ---
+# --- FIXED HIGH-CONTRAST PDF GENERATOR ---
 def generate_pdf(dataframe):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=15, leftMargin=15, topMargin=30, bottomMargin=30)
@@ -161,7 +194,6 @@ def generate_pdf(dataframe):
     buffer.seek(0)
     return buffer
 
-
 # --- REGEX EXTRACTOR ENGINE ---
 def extract_order_details(text_block):
     patterns = {
@@ -172,7 +204,6 @@ def extract_order_details(text_block):
         "Receiver_State": r"Receiver\s*State\s*/\s*Province:\s*(.*)",
         "Receiver_Phone": r"Receiver\s*Phone\s*(?:No|Number)?:\s*(.*)"
     }
-    
     extracted = {}
     for key, pattern in patterns.items():
         match = re.search(pattern, text_block, re.IGNORECASE)
@@ -185,25 +216,23 @@ def extract_order_details(text_block):
         
     return extracted
 
-
 # --- NATIVE INTERFACE & SESSION RECOVERY ENGINE ---
 st.set_page_config(page_title="Custrack — Multi-User Workspace", page_icon="🛍️", layout="wide", initial_sidebar_state="expanded")
 
-# Recover parameters from URL parameters early
 url_session_id = st.query_params.get("session")
 url_theme_preference = st.query_params.get("theme")
 
-# Initialize standard parameter fallback states with URL memory checks
 if "user_authenticated" not in st.session_state: st.session_state.user_authenticated = False
 if "user_id" not in st.session_state: st.session_state.user_id = None
 if "biz_name" not in st.session_state: st.session_state.biz_name = ""
 if "biz_logo" not in st.session_state: st.session_state.biz_logo = None
+if "signup_step" not in st.session_state: st.session_state.signup_step = 1
+if "temp_user_id" not in st.session_state: st.session_state.temp_user_id = None
+if "show_splash" not in st.session_state: st.session_state.show_splash = False
 
-# If the theme URL query parameter exists, prioritize it during initial layout builds
 if "theme_dark" not in st.session_state: 
     st.session_state.theme_dark = (url_theme_preference == "dark")
 
-# Session Authentication Pipeline Validation
 if not st.session_state.user_authenticated and url_session_id:
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -211,12 +240,11 @@ if not st.session_state.user_authenticated and url_session_id:
     user_match = cursor.fetchone()
     conn.close()
     
-    if user_match:
+    if user_match and user_match[1] is not None:
         st.session_state.user_authenticated = True
         st.session_state.user_id = user_match[0]
         st.session_state.biz_name = user_match[1]
         st.session_state.biz_logo = user_match[2]
-
 
 # --- THEME CUSTOM STYLE LAYOUT INJECTORS ---
 if st.session_state.theme_dark:
@@ -258,63 +286,119 @@ else:
         </style>
     """, unsafe_allow_html=True)
 
+# =========================================================================
+# 🎬 SPLASH SCREEN ROUTER (ANIMATION EFFECT LAYER)
+# =========================================================================
+if st.session_state.show_splash:
+    splash_bg = "#0F172A" if st.session_state.theme_dark else "#1E3A8A"
+    splash_text = "#38BDF8" if st.session_state.theme_dark else "#FFFFFF"
+    
+    st.markdown(f"""
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 75vh; background: linear-gradient(135deg, {splash_bg}, #1E1B4B); border-radius: 16px; margin: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); animation: fadeIn 1s ease-out;">
+            <h1 style="color: {splash_text} !important; font-size: 4rem !important; font-weight: 900 !important; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 2px; text-shadow: 0 4px 12px rgba(0,0,0,0.5);">
+                🚀 WELCOME
+            </h1>
+            <h2 style="color: #F43F5E !important; font-size: 2.5rem !important; font-weight: 700 !important; letter-spacing: 1px;">
+                {st.session_state.biz_name}
+            </h2>
+            <p style="color: #94A3B8 !important; margin-top: 30px; font-size: 1.1rem; font-style: italic;">
+                Preparing your workspace environments...
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
+    time.sleep(3.0)
+    st.session_state.show_splash = False
+    st.rerun()
 
 # =========================================================================
-# 🔒 GATEWAY WALL: USER REGISTRATION AND LOGIN PORTAL
+# 🔒 GATEWAY WALL: SIGNUP & INITIALIZATION PIPELINE
 # =========================================================================
 if not st.session_state.user_authenticated:
     st.title("🛍️ Welcome to Custrack Portal")
-    st.markdown("Please log in or create a secure account to access your isolated business dashboard.")
     
     auth_mode = st.radio("Choose Action Portal:", ["Sign In to Account", "Create New Custrack Account"], horizontal=True)
     st.markdown("---")
     
     if auth_mode == "Create New Custrack Account":
-        st.subheader("📝 Sign Up Form")
-        reg_email = st.text_input("Valid Email Address")
-        reg_pass = st.text_input("Create Password", type="password")
-        reg_confirm = st.text_input("Reconfirm Password", type="password")
-        
-        has_upper = any(c.isupper() for c in reg_pass)
-        has_digit = any(c.isdigit() for c in reg_pass)
-        has_min_len = len(reg_pass) >= 7
-        
-        if reg_pass:
-            if has_upper and has_digit and has_min_len:
-                st.success("👑 Password Strength: Strong (Meets all parameters)")
-                pass_is_valid = True
-            else:
-                st.error("❌ Password Strength: Weak (Must contain at least 7 characters, a Capital letter, and a Number)")
-                pass_is_valid = False
-                
-            if reg_pass != reg_confirm:
-                st.warning("⚠️ Status Notice: Reconfirmed validation entry does not match original password input.")
-                pass_matches = False
-            else:
-                pass_matches = True
-        else:
-            pass_is_valid = False
-            pass_matches = False
-
-        st.markdown("#### Corporate Profile Attachments")
-        reg_biz_name = st.text_input("Business Name * (Compulsory)")
-        reg_biz_logo = st.file_uploader("Upload Business Logo Image * (Compulsory)", type=["png", "jpg", "jpeg"])
-        
-        if st.button("🚀 Register Corporate Account", use_container_width=True):
-            if not reg_email or not reg_biz_name or not reg_biz_logo:
-                st.error("Validation Error: All profile form elements marked with an asterisk (*) are strictly compulsory.")
-            elif not pass_is_valid:
-                st.error("Validation Error: Please increase your password complexity to fulfill strength metrics.")
-            elif not pass_matches:
-                st.error("Validation Error: Passwords must match exactly before database synchronization.")
-            else:
-                logo_binary_blob = reg_biz_logo.read()
-                success = register_user(reg_email, reg_pass, reg_biz_name, logo_binary_blob)
-                if success:
-                    st.success("Account constructed successfully! Switching workspace portals...")
-                    st.info("You can now toggle to 'Sign In to Account' to open your tracker.")
+        # --- ONBOARDING PHASE 1: ACCOUNT CREDENTIALS ---
+        if st.session_state.signup_step == 1:
+            st.subheader("📝 Step 1: Base Account Access Setup")
+            reg_email = st.text_input("Valid Email Address")
+            reg_pass = st.text_input("Create Secure Password", type="password")
+            reg_confirm = st.text_input("Reconfirm Password", type="password")
+            
+            has_upper = any(c.isupper() for c in reg_pass)
+            has_digit = any(c.isdigit() for c in reg_pass)
+            has_min_len = len(reg_pass) >= 7
+            
+            if reg_pass:
+                if has_upper and has_digit and has_min_len:
+                    st.success("👑 Password Strength: Strong")
+                    pass_is_valid = True
                 else:
-                    st.error("Database Collision Error: That email address has already been registered.")
+                    st.error("❌ Weak: Minimum 7 tokens with an uppercase character and a numeric token required.")
+                    pass_is_valid = False
+                pass_matches = (reg_pass == reg_confirm)
+                if not pass_matches: st.warning("⚠️ Passwords values do not match yet.")
+            else:
+                pass_is_valid = pass_matches = False
+
+            if st.button("Proceed to Business Registration ➡️", use_container_width=True):
+                if not reg_email or not pass_is_valid or not pass_matches:
+                    st.error("Validation Error: Please resolve credential structural metrics before moving forward.")
+                else:
+                    new_uid = register_base_user(reg_email, reg_pass)
+                    if new_uid:
+                        st.session_state.temp_user_id = new_uid
+                        st.session_state.signup_step = 2
+                        st.rerun()
+                    else:
+                        st.error("Collision Error: Email configuration space already claimed.")
+
+        # --- ONBOARDING PHASE 2: DETAILED CORPORATE REGISTRATION ---
+        elif st.session_state.signup_step == 2:
+            st.subheader("🏢 Step 2: Establish Corporate Identity Profile")
+            
+            reg_biz_name = st.text_input("Business Name *")
+            reg_owner_name = st.text_input("Owner Full Name *")
+            
+            selected_country = st.selectbox("Operating Country Structure *", list(COUNTRIES.keys()))
+            country_dial = COUNTRIES[selected_country]
+            
+            # Inline side-by-side presentation layer matching dynamic phone numbers
+            p_col1, p_col2 = st.columns([1, 4])
+            with p_col1:
+                st.text_input("Code", value=country_dial, disabled=True, key="dial_disabled_v")
+            with p_col2:
+                raw_phone_body = st.text_input("Phone Box Number Entry *", placeholder="80XXXXXXXX")
+                
+            full_compiled_phone = f"{country_dial}{raw_phone_body.strip()}"
+            reg_biz_logo = st.file_uploader("Upload Profile Corporate Logo Asset *", type=["png", "jpg", "jpeg"])
+            
+            if st.button("Proceed & Initialize Dashboard 🚀", use_container_width=True):
+                if not reg_biz_name or not reg_owner_name or not raw_phone_body or not reg_biz_logo:
+                    st.error("Validation Error: All properties are mandatory to create your isolated ledger.")
+                else:
+                    logo_binary_blob = reg_biz_logo.read()
+                    complete_business_profile(
+                        st.session_state.temp_user_id, reg_biz_name, reg_owner_name, 
+                        selected_country, full_compiled_phone, logo_binary_blob
+                    )
+                    
+                    # Log user session state parameters completely
+                    st.session_state.user_authenticated = True
+                    st.session_state.user_id = st.session_state.temp_user_id
+                    st.session_state.biz_name = reg_biz_name
+                    st.session_state.biz_logo = logo_binary_blob
+                    
+                    st.query_params["session"] = str(st.session_state.user_id)
+                    st.query_params["theme"] = "dark" if st.session_state.theme_dark else "light"
+                    
+                    # Reset signup temporary tracks and prompt beautiful welcome animation layer
+                    st.session_state.signup_step = 1
+                    st.session_state.temp_user_id = None
+                    st.session_state.show_splash = True
+                    st.rerun()
                     
     elif auth_mode == "Sign In to Account":
         st.subheader("🔑 Access Workspace Identity validation")
@@ -329,28 +413,24 @@ if not st.session_state.user_authenticated:
                 st.session_state.biz_name = user_match[1]
                 st.session_state.biz_logo = user_match[2]
                 
-                # NATIVE LOGIN & THEME RETENTION: Write states cleanly to query strings
                 st.query_params["session"] = str(user_match[0])
                 st.query_params["theme"] = "dark" if st.session_state.theme_dark else "light"
                 
                 st.toast(f"Welcome back to Custrack, {st.session_state.biz_name}!")
                 st.rerun()
             else:
-                st.error("Access Denied: Invalid combination credentials checked. Verify your login parameters.")
+                st.error("Access Denied: Invalid parameters. Verify your configuration data details.")
     st.stop()
 
-
 # =========================================================================
-# 🔓 APPLICATION LAYER: EXECUTED ONLY IF ACCOUNT CREDENTIALS VALIDATED
+# 🔓 APPLICATION LAYER: MAIN LEDGER SYSTEM INTERFACE
 # =========================================================================
 
-# --- SIDEBAR MENU ARCHISTRATION ---
 with st.sidebar:
     if st.session_state.biz_logo:
         st.image(st.session_state.biz_logo, width=110)
-    
     st.markdown(f"### ✨ **{st.session_state.biz_name}**")
-    st.markdown("`WELCOME TO CUSTRACK`")
+    st.markdown("`WORKSPACE ACTIVE`")
     st.markdown("---")
     
     st.markdown("## 🧭 Main Menu")
@@ -359,13 +439,11 @@ with st.sidebar:
         ["📥 Quick Paste Workspace", "📊 View Data & Cloud Exports", "🏆 Patronage Dashboard"],
         label_visibility="collapsed"
     )
-    
     st.markdown("---")
-    st.markdown("### 🌗 System Theme Config")
+    
     bulb_label = "💡 Theme Mode: Dark" if st.session_state.theme_dark else "💡 Theme Mode: Light"
     if st.button(bulb_label, use_container_width=True):
         st.session_state.theme_dark = not st.session_state.theme_dark
-        # Dynamically append or update the active theme token inside browser URL parameters
         st.query_params["theme"] = "dark" if st.session_state.theme_dark else "light"
         st.rerun()
         
@@ -374,22 +452,17 @@ with st.sidebar:
         st.session_state.user_id = None
         st.session_state.biz_name = ""
         st.session_state.biz_logo = None
-        
-        # NATIVE PURGE: Instantly wipe parameters out of the URL bar
         st.query_params.clear()
         st.rerun()
 
-# --- ADMIN VIEW CONDITIONAL ATTACHMENT TIE-IN ---
-with st.sidebar:
-    show_raw_database = st.checkbox("🔍 Open Secret Admin DB Viewer")
-
+# --- ADMIN VIEW TIE-IN ---
+with st.sidebar: show_raw_database = st.checkbox("🔍 Open Secret Admin DB Viewer")
 if show_raw_database:
     st.markdown("## 🔐 Master Database Administrative Overview")
-    st.warning("This panel bypasses user filters and shows raw data stored on disk.")
     conn = sqlite3.connect(DB_FILE)
     st.subheader("👥 Registered Corporate Users (`users` Table)")
     try:
-        all_users_df = pd.read_sql_query("SELECT id, Email, Password, Business_Name FROM users", conn)
+        all_users_df = pd.read_sql_query("SELECT id, Email, Business_Name, Owner_Name, Country, Phone_Number FROM users", conn)
         st.dataframe(all_users_df, use_container_width=True)
     except Exception as e: st.error(f"Could not read users table: {e}")
     st.subheader("📦 All Customer Dispatches Master Log (`orders` Table)")
@@ -399,217 +472,96 @@ if show_raw_database:
     except Exception as e: st.error(f"Could not read orders table: {e}")
     conn.close()
 
-# --- DYNAMICALLY SEGREGATED CONTENT LOADING FRAMEWORK ROUTER ---
+# --- WORKSPACE APP VIEW CONTROLLERS ---
 USER_CONTEXT_ID = st.session_state.user_id
 
 if navigation_selection == "📥 Quick Paste Workspace":
     st.markdown(f"### <span style='color:{accent_color}'>Paste Raw Customer Dispatch Block</span>", unsafe_allow_html=True)
-    
-    placeholder_text = (
-        "Customer Name: Adefarasin John\n"
-        "Customer Phone No: 09071234567\n"
-        "Receiver Name: Pelumi Odulaja\n"
-        "Receiver Address: 10 Surulere\n"
-        "Receiver State/Province: Lagos State\n"
-        "Receiver Phone No: 08081234567"
-    )
-    
+    placeholder_text = "Customer Name: Adefarasin John\nCustomer Phone No: 09071234567\nReceiver Name: Pelumi Odulaja\nAddress: 10 Surulere\nReceiver State/Province: Lagos State"
     raw_pasted_text = st.text_area("Drop plain text string block here:", height=220, placeholder=placeholder_text)
     
     col_opt1, col_opt2 = st.columns(2)
-    with col_opt1:
-        payment_condition = st.selectbox("Direct Ledger Payment Status", ["Paid", "Pending Verify", "COD - Cash on Delivery"])
-    with col_opt2:
-        source_channel = st.selectbox("Marketplace Origin Channel", ["Instagram DMs", "WhatsApp Business", "TikTok Direct", "Facebook DM"])
+    with col_opt1: payment_condition = st.selectbox("Direct Ledger Payment Status", ["Paid", "Pending Verify", "COD - Cash on Delivery"])
+    with col_opt2: source_channel = st.selectbox("Marketplace Origin Channel", ["Instagram DMs", "WhatsApp Business", "TikTok Direct", "Facebook DM"])
         
-    st.markdown("<br>", unsafe_allow_html=True)
-    
     if st.button("⚡ Save Customer Details", type="primary", use_container_width=True):
         if raw_pasted_text.strip():
             parsed_data = extract_order_details(raw_pasted_text)
-            
             if parsed_data["Customer_Name"] != "Not Provided" or parsed_data["Delivery_Address"] != "Not Provided":
-                now = datetime.now()
-                timestamp_log = now.strftime("%Y-%m-%d %H:%M:%S")
-                
                 final_row = {
-                    "Time_Log": timestamp_log,
-                    "Customer_Name": parsed_data["Customer_Name"],
-                    "Customer_Phone": parsed_data["Customer_Phone"],
-                    "Receiver_Name": parsed_data["Receiver_Name"],
-                    "Delivery_Address": parsed_data["Delivery_Address"],
-                    "Receiver_State": parsed_data["Receiver_State"],
-                    "Receiver_Phone": parsed_data["Receiver_Phone"],
-                    "Status": f"{payment_condition} ({source_channel})",
-                    "Payment_Status": payment_condition,
-                    "Marketplace_Channel": source_channel
+                    "Time_Log": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "Customer_Name": parsed_data["Customer_Name"], "Customer_Phone": parsed_data["Customer_Phone"],
+                    "Receiver_Name": parsed_data["Receiver_Name"], "Delivery_Address": parsed_data["Delivery_Address"],
+                    "Receiver_State": parsed_data["Receiver_State"], "Receiver_Phone": parsed_data["Receiver_Phone"],
+                    "Status": f"{payment_condition} ({source_channel})", "Payment_Status": payment_condition, "Marketplace_Channel": source_channel
                 }
-                
                 save_order_to_db(final_row, USER_CONTEXT_ID)
+                st.success(f"🎯 Saved! Record written permanently to database disk for {final_row['Customer_Name']}.")
                 
-                st.markdown(f"""
-                <div style="background-color: #10B981; padding: 15px; border-radius: 8px; color: white; font-weight: bold; margin-bottom: 15px;">
-                    🎯 Saved! Record written permanently to database disk for {final_row['Customer_Name']}.
-                </div>
-                """, unsafe_allow_html=True)
-                
-                st.markdown("#### Outbound Confirmation Copy Block")
-                outbound_receipt = (
-                    f"Hello {final_row['Customer_Name']},\n\n"
-                    f"We've successfully logged your order delivery details! ✨\n\n"
-                    f"📦 Dispatch To: {final_row['Receiver_Name']}\n"
-                    f"📍 Target Address: {final_row['Delivery_Address']}, {final_row['Receiver_State']}\n"
-                    f"📞 Delivery Hotline: {final_row['Receiver_Phone']}\n\n"
-                    f"Thank you for shopping with {st.session_state.biz_name}! 🛍️"
-                )
+                outbound_receipt = f"Hello {final_row['Customer_Name']},\n\nWe've successfully logged your order! ✨\n\n📦 Dispatch To: {final_row['Receiver_Name']}\n📍 Target Address: {final_row['Delivery_Address']}, {final_row['Receiver_State']}\n\nThank you for shopping with {st.session_state.biz_name}! 🛍️"
                 st.text_area("Copy and send directly to customer:", value=outbound_receipt, height=140)
-            else:
-                st.error("Parse Error: Could not extract details. Check text tags.")
-        else:
-            st.error("Text field is empty.")
+            else: st.error("Parse Error: Check formatting tags.")
+        else: st.error("Text field is empty.")
 
 elif navigation_selection == "📊 View Data & Cloud Exports":
     st.markdown(f"### <span style='color:{accent_color}'>View Data & File Exporters</span>", unsafe_allow_html=True)
-    
     raw_ledger_df = load_orders_from_db(USER_CONTEXT_ID)
     
     if not raw_ledger_df.empty:
         date_objects = pd.to_datetime(raw_ledger_df['Time_Log'], errors='coerce')
         raw_ledger_df['Log_Month'] = date_objects.dt.strftime('%B').fillna('Unknown')
         raw_ledger_df['Day_of_Week'] = date_objects.dt.strftime('%A').fillna('Unknown')
+        arranged_df = raw_ledger_df[['id', 'Log_Month', 'Day_of_Week', 'Customer_Name', 'Customer_Phone', 'Receiver_Name', 'Delivery_Address', 'Receiver_State', 'Receiver_Phone', 'Payment_Status', 'Marketplace_Channel']]
         
-        arranged_df = raw_ledger_df[[
-            'id', 'Log_Month', 'Day_of_Week', 'Customer_Name', 'Customer_Phone', 
-            'Receiver_Name', 'Delivery_Address', 'Receiver_State', 'Receiver_Phone', 
-            'Payment_Status', 'Marketplace_Channel'
-        ]]
-
-        st.markdown("#### 📑 Excel Column-Level Filter Dropdowns")
         f_col1, f_col2, f_col3, f_col4 = st.columns(4)
-        f_col5, f_col6, f_col7, f_col8 = st.columns(4)
-        
-        with f_col1:
-            month_list = ["All"] + sorted(arranged_df['Log_Month'].unique().tolist())
-            sel_month = st.selectbox("Log Month", month_list)
-        with f_col2:
-            day_list = ["All"] + sorted(arranged_df['Day_of_Week'].unique().tolist())
-            sel_day = st.selectbox("Weekday", day_list)
-        with f_col3:
-            state_list = ["All"] + sorted(arranged_df['Receiver_State'].unique().tolist())
-            sel_state = st.selectbox("Receiver State", state_list)
-        with f_col4:
-            pay_list = ["All"] + sorted(arranged_df['Payment_Status'].unique().tolist())
-            sel_pay = st.selectbox("Payment Status", pay_list)
-        with f_col5:
-            chan_list = ["All"] + sorted(arranged_df['Marketplace_Channel'].unique().tolist())
-            sel_chan = st.selectbox("Marketplace Channel", chan_list)
-        with f_col6:
-            cust_list = ["All"] + sorted(arranged_df['Customer_Name'].unique().tolist())
-            sel_cust = st.selectbox("Customer Name", cust_list)
-        with f_col7:
-            phone_list = ["All"] + sorted(arranged_df['Customer_Phone'].unique().tolist())
-            sel_phone = st.selectbox("Customer Phone", phone_list)
-        with f_col8:
-            text_address_query = st.text_input("Street Address Search", placeholder="Type keywords...").strip().lower()
+        with f_col1: sel_month = st.selectbox("Log Month", ["All"] + sorted(arranged_df['Log_Month'].unique().tolist()))
+        with f_col2: sel_day = st.selectbox("Weekday", ["All"] + sorted(arranged_df['Day_of_Week'].unique().tolist()))
+        with f_col3: sel_state = st.selectbox("Receiver State", ["All"] + sorted(arranged_df['Receiver_State'].unique().tolist()))
+        with f_col4: sel_pay = st.selectbox("Payment Status", ["All"] + sorted(arranged_df['Payment_Status'].unique().tolist()))
 
         filtered_df = arranged_df.copy()
         if sel_month != "All": filtered_df = filtered_df[filtered_df['Log_Month'] == sel_month]
         if sel_day != "All": filtered_df = filtered_df[filtered_df['Day_of_Week'] == sel_day]
         if sel_state != "All": filtered_df = filtered_df[filtered_df['Receiver_State'] == sel_state]
         if sel_pay != "All": filtered_df = filtered_df[filtered_df['Payment_Status'] == sel_pay]
-        if sel_chan != "All": filtered_df = filtered_df[filtered_df['Marketplace_Channel'] == sel_chan]
-        if sel_cust != "All": filtered_df = filtered_df[filtered_df['Customer_Name'] == sel_cust]
-        if sel_phone != "All": filtered_df = filtered_df[filtered_df['Customer_Phone'] == sel_phone]
-        if text_address_query: filtered_df = filtered_df[filtered_df['Delivery_Address'].str.lower().str.contains(text_address_query, na=False)]
 
-        st.caption(f"Showing {len(filtered_df)} of {len(arranged_df)} records matching active criteria filters.")
-
-        col_dl1, col_dl2, col_dl3 = st.columns(3)
         export_df = filtered_df.drop(columns=["id"], errors="ignore")
-        
-        col_dl1.download_button("📄 Download Filtered CSV", export_df.to_csv(index=False).encode('utf-8'), "custrack_ledger.csv", "text/csv", use_container_width=True)
+        col_dl1, col_dl2, col_dl3 = st.columns(3)
+        col_dl1.download_button("📄 Download Filtered CSV", export_df.to_csv(index=False).encode('utf-8'), "ledger.csv", "text/csv", use_container_width=True)
         
         xlsx_io = io.BytesIO()
         with pd.ExcelWriter(xlsx_io, engine='openpyxl') as wr: export_df.to_excel(wr, index=False, sheet_name="Deliveries")
         xlsx_io.seek(0)
-        col_dl2.download_button("📈 Download Filtered Excel (.xlsx)", xlsx_io, "custrack_ledger.xlsx", use_container_width=True)
+        col_dl2.download_button("📈 Download Filtered Excel", xlsx_io, "ledger.xlsx", use_container_width=True)
+        col_dl3.download_button("📕 Export Filtered PDF", generate_pdf(export_df), "ledger.pdf", "application/pdf", use_container_width=True)
         
-        col_dl3.download_button("📕 Export Filtered PDF", generate_pdf(export_df), "custrack_ledger.pdf", "application/pdf", use_container_width=True)
-        
-        st.markdown("---")
-        st.markdown("#### 🚨 Delete Specified Data Rows")
-        deletion_options = { f"Row ID {row['id']} | {row['Customer_Name']}": row['id'] for _, row in filtered_df.iterrows() }
-        
-        if deletion_options:
-            target_selections = st.multiselect("Select specific records to remove:", options=list(deletion_options.keys()))
-            if st.button("🗑️ Drop Selected Rows Permanently", type="secondary"):
-                if target_selections:
-                    delete_orders_from_db([deletion_options[item] for item in target_selections], USER_CONTEXT_ID)
-                    st.toast("Selected rows successfully removed from database storage.")
-                    st.rerun()
-        
-        st.markdown("---")
         st.dataframe(export_df, use_container_width=True)
     else:
-        st.info("The database storage space is empty for this profile. Log verified entries inside the Quick Paste Workspace.")
+        st.info("The database storage space is empty for this profile.")
 
 elif navigation_selection == "🏆 Patronage Dashboard":
     st.markdown(f"### <span style='color:{accent_color}'>🏆 Customer Loyalty Insights</span>", unsafe_allow_html=True)
-    
     dash_df = load_orders_from_db(USER_CONTEXT_ID)
     
     if not dash_df.empty:
-        total_orders = len(dash_df)
-        unique_customers = dash_df['Customer_Phone'].nunique()
-        repeat_customers = sum(dash_df['Customer_Phone'].value_counts() > 1)
-        
         col_m1, col_m2, col_m3 = st.columns(3)
-        with col_m1: st.metric("📦 Total Orders Handled", total_orders)
-        with col_m2: st.metric("👥 Total Unique Customers", unique_customers)
-        with col_m3: st.metric("🔄 Loyal Repeat Customers", repeat_customers)
-            
-        st.markdown("---")
-        st.markdown(f"### <span style='color:{accent_color}'>📊 Sales & Operations Analytics</span>", unsafe_allow_html=True)
+        col_m1.metric("📦 Total Orders Handled", len(dash_df))
+        col_m2.metric("👥 Total Unique Customers", dash_df['Customer_Phone'].nunique())
+        col_m3.metric("🔄 Loyal Repeat Customers", sum(dash_df['Customer_Phone'].value_counts() > 1))
         
         date_series = pd.to_datetime(dash_df['Time_Log'], errors='coerce')
         dash_df['Extracted_Day'] = date_series.dt.strftime('%A').fillna('Unknown')
         
         chart_col1, chart_col2 = st.columns(2)
         with chart_col1:
-            st.markdown("#### 📅 Day of the Week Sales Count")
+            st.markdown("#### 📅 Day of the Week Sales")
             day_counts = dash_df['Extracted_Day'].value_counts().reset_index()
             day_counts.columns = ['Day of Week', 'Sales Volume']
-            week_chronological_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-            day_counts['Day of Week'] = pd.Categorical(day_counts['Day of Week'], categories=week_chronological_order, ordered=True)
-            st.bar_chart(data=day_counts.sort_values('Day of Week'), x='Day of Week', y='Sales Volume', color=chart_color_1, use_container_width=True)
-            
+            st.bar_chart(data=day_counts, x='Day of Week', y='Sales Volume', color=chart_color_1, use_container_width=True)
         with chart_col2:
-            st.markdown("#### 📍 Regional Distribution Count")
+            st.markdown("#### 📍 Regional Distribution")
             state_counts = dash_df['Receiver_State'].value_counts().reset_index()
             state_counts.columns = ['Receiver State', 'Orders Volume']
-            st.bar_chart(data=state_counts.sort_values(by='Orders Volume', ascending=False), x='Receiver State', y='Orders Volume', color=chart_color_2, use_container_width=True)
-            
-        st.markdown("---")
-        st.markdown("#### 📈 Customer Patronage Leaderboard")
-        
-        leaderboard = dash_df.groupby('Customer_Phone').agg(Customer_Name=('Customer_Name', 'first'), Total_Patronage_Count=('id', 'count')).reset_index()
-        leaderboard = leaderboard.sort_values(by='Total_Patronage_Count', ascending=False).reset_index(drop=True)
-        leaderboard = leaderboard[["Customer_Name", "Customer_Phone", "Total_Patronage_Count"]]
-        leaderboard.columns = ["👑 Customer Name Reference", "📞 Unique Phone Number", "🛍️ Times Patronized"]
-        
-        vip_customer = leaderboard.iloc[0]["👑 Customer Name Reference"]
-        vip_phone = leaderboard.iloc[0]["📞 Unique Phone Number"]
-        vip_count = leaderboard.iloc[0]["🛍️ Times Patronized"]
-        
-        alert_box_bg = "#1E293B" if st.session_state.theme_dark else "#E2E8F0"
-        alert_text_base = "#FFFFFF" if st.session_state.theme_dark else "#1E3A8A"
-        
-        st.markdown(f"""
-        <div style="background-color: {alert_box_bg}; border-left: 5px solid #38BDF8; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
-            <span style="color: #38BDF8; font-weight: bold;">✨ VIP Customer Alert:</span><br>
-            <span style="color: {alert_text_base};">The customer with phone number <strong>{vip_phone}</strong> ({vip_customer}) is your top patron, ordering <strong>{vip_count} times</strong>!</span>
-        </div>
-        """, unsafe_allow_html=True)
-        st.dataframe(leaderboard, use_container_width=True)
+            st.bar_chart(data=state_counts, x='Receiver State', y='Orders Volume', color=chart_color_2, use_container_width=True)
     else:
-        st.info("No data available yet. Save entries in Tab 1 to populate metrics.")
+        st.info("No data available yet. Save entries to populate metrics.")
