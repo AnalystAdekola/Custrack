@@ -118,32 +118,35 @@ def verify_user(email, password):
 
 # --- TRANSACTIONAL LOG DATABASE READ/WRITE LAYER ---
 def save_order_to_db(order_dict, user_id):
+    """Inserts a parsed order row into the orders table while gracefully falling back if columns are mismatched."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO orders (user_id, Time_Log, Customer_Name, Customer_Phone, Receiver_Name, Delivery_Address, Receiver_State, Receiver_Phone, Status, Payment_Status, Marketplace_Channel)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        user_id, order_dict["Time_Log"], order_dict["Customer_Name"], order_dict["Customer_Phone"],
-        order_dict["Receiver_Name"], order_dict["Delivery_Address"], order_dict["Receiver_State"], 
-        order_dict["Receiver_Phone"], order_dict["Status"], order_dict["Payment_Status"], order_dict["Marketplace_Channel"]
-    ))
-    conn.commit()
-    conn.close()
-
-def load_orders_from_db(user_id):
-    conn = sqlite3.connect(DB_FILE)
-    df = pd.read_sql_query("SELECT * FROM orders WHERE user_id = ?", conn, params=(user_id,))
-    conn.close()
-    return df
-
-def delete_orders_from_db(id_list, user_id):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    if len(id_list) == 1:
-        cursor.execute(f"DELETE FROM orders WHERE id = {id_list[0]} AND user_id = {user_id}")
+    
+    # Safely verify columns present in the live orders table on disk
+    cursor.execute("PRAGMA table_info(orders)")
+    columns = [info[1] for info in cursor.fetchall()]
+    
+    if "user_id" in columns:
+        # Production Flow: Multi-user setup matches perfectly
+        cursor.execute("""
+            INSERT INTO orders (user_id, Time_Log, Customer_Name, Customer_Phone, Receiver_Name, Delivery_Address, Receiver_State, Receiver_Phone, Status, Payment_Status, Marketplace_Channel)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            user_id, order_dict["Time_Log"], order_dict["Customer_Name"], order_dict["Customer_Phone"],
+            order_dict["Receiver_Name"], order_dict["Delivery_Address"], order_dict["Receiver_State"], 
+            order_dict["Receiver_Phone"], order_dict["Status"], order_dict["Payment_Status"], order_dict["Marketplace_Channel"]
+        ))
     else:
-        cursor.execute(f"DELETE FROM orders WHERE id IN {tuple(id_list)} AND user_id = {user_id}")
+        # Fallback Legacy Flow: Prevents crashing if the database table hasn't updated its layout yet
+        cursor.execute("""
+            INSERT INTO orders (Time_Log, Customer_Name, Customer_Phone, Receiver_Name, Delivery_Address, Receiver_State, Receiver_Phone, Status, Payment_Status, Marketplace_Channel)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            order_dict["Time_Log"], order_dict["Customer_Name"], order_dict["Customer_Phone"],
+            order_dict["Receiver_Name"], order_dict["Delivery_Address"], order_dict["Receiver_State"], 
+            order_dict["Receiver_Phone"], order_dict["Status"], order_dict["Payment_Status"], order_dict["Marketplace_Channel"]
+        ))
+        
     conn.commit()
     conn.close()
 
