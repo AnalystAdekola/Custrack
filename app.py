@@ -122,12 +122,10 @@ def save_order_to_db(order_dict, user_id):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     
-    # Safely verify columns present in the live orders table on disk
     cursor.execute("PRAGMA table_info(orders)")
     columns = [info[1] for info in cursor.fetchall()]
     
     if "user_id" in columns:
-        # Production Flow: Multi-user setup matches perfectly
         cursor.execute("""
             INSERT INTO orders (user_id, Time_Log, Customer_Name, Customer_Phone, Receiver_Name, Delivery_Address, Receiver_State, Receiver_Phone, Status, Payment_Status, Marketplace_Channel)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -137,7 +135,6 @@ def save_order_to_db(order_dict, user_id):
             order_dict["Receiver_Phone"], order_dict["Status"], order_dict["Payment_Status"], order_dict["Marketplace_Channel"]
         ))
     else:
-        # Fallback Legacy Flow: Prevents crashing if the database table hasn't updated its layout yet
         cursor.execute("""
             INSERT INTO orders (Time_Log, Customer_Name, Customer_Phone, Receiver_Name, Delivery_Address, Receiver_State, Receiver_Phone, Status, Payment_Status, Marketplace_Channel)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -146,10 +143,37 @@ def save_order_to_db(order_dict, user_id):
             order_dict["Receiver_Name"], order_dict["Delivery_Address"], order_dict["Receiver_State"], 
             order_dict["Receiver_Phone"], order_dict["Status"], order_dict["Payment_Status"], order_dict["Marketplace_Channel"]
         ))
-        
     conn.commit()
     conn.close()
 
+def load_orders_from_db(user_id):
+    """Loads records belonging exclusively to the authenticated user ID profile connection."""
+    conn = sqlite3.connect(DB_FILE)
+    
+    # Check schema layout first to avoid crashing on older databases
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(orders)")
+    columns = [info[1] for info in cursor.fetchall()]
+    
+    if "user_id" in columns:
+        df = pd.read_sql_query("SELECT * FROM orders WHERE user_id = ?", conn, params=(user_id,))
+    else:
+        df = pd.read_sql_query("SELECT * FROM orders", conn)
+        
+    conn.close()
+    return df
+
+def delete_orders_from_db(id_list, user_id):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    if len(id_list) == 1:
+        cursor.execute(f"DELETE FROM orders WHERE id = {id_list[0]} AND user_id = {user_id}")
+    else:
+        cursor.execute(f"DELETE FROM orders WHERE id IN {tuple(id_list)} AND user_id = {user_id}")
+    conn.commit()
+    conn.close()
+
+# Run database configuration checks upfront
 init_db()
 
 # --- FIXED HIGH-CONTRAST PDF GENERATOR ---
@@ -368,7 +392,6 @@ if not st.session_state.user_authenticated:
             selected_country = st.selectbox("Operating Country Structure *", list(COUNTRIES.keys()))
             country_dial = COUNTRIES[selected_country]
             
-            # Inline side-by-side presentation layer matching dynamic phone numbers
             p_col1, p_col2 = st.columns([1, 4])
             with p_col1:
                 st.text_input("Code", value=country_dial, disabled=True, key="dial_disabled_v")
@@ -388,7 +411,6 @@ if not st.session_state.user_authenticated:
                         selected_country, full_compiled_phone, logo_binary_blob
                     )
                     
-                    # Log user session state parameters completely
                     st.session_state.user_authenticated = True
                     st.session_state.user_id = st.session_state.temp_user_id
                     st.session_state.biz_name = reg_biz_name
@@ -397,7 +419,6 @@ if not st.session_state.user_authenticated:
                     st.query_params["session"] = str(st.session_state.user_id)
                     st.query_params["theme"] = "dark" if st.session_state.theme_dark else "light"
                     
-                    # Reset signup temporary tracks and prompt beautiful welcome animation layer
                     st.session_state.signup_step = 1
                     st.session_state.temp_user_id = None
                     st.session_state.show_splash = True
